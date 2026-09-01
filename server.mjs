@@ -1,9 +1,9 @@
 // Copyright © 2026 Paul Gregory. Tous droits réservés.
 // Serveur local (127.0.0.1) : sert l'UI, tient le registre des projets, lit et écrit
-// les ETAPES.md dans les dépôts, expose les sessions Claude vivantes de la machine,
+// les MILESTONES.md dans les dépôts, expose les sessions Claude vivantes de la machine,
 // et relaie les pseudo-terminaux en WebSocket.
 //
-// Aucune base de données. La vérité vit dans les dépôts (ETAPES.md) et dans
+// Aucune base de données. La vérité vit dans les dépôts (MILESTONES.md) et dans
 // Claude Code lui-même (`claude agents --json`). L'app n'est qu'une vue.
 
 import http from "node:http";
@@ -15,8 +15,9 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import * as M from "./etapes.mjs";
+import * as M from "./milestones.mjs";
 import { createTerminals } from "./terminals.mjs";
+import { propose } from "./generate.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -73,10 +74,10 @@ function readAgents() {
   if (Date.now() - agentsCache.at < AGENTS_TTL) return Promise.resolve(agentsCache);
   return new Promise((resolve) => {
     execFile("claude", ["agents", "--json"], { timeout: 8000, maxBuffer: 4 << 20 }, (err, stdout) => {
-      if (err) agentsCache = { at: Date.now(), list: agentsCache.list, error: err.code === "ENOENT" ? "claude introuvable dans le PATH" : String(err.message || err) };
+      if (err) agentsCache = { at: Date.now(), list: agentsCache.list, error: err.code === "ENOENT" ? "claude not found in PATH" : String(err.message || err) };
       else {
         try { agentsCache = { at: Date.now(), list: JSON.parse(stdout), error: null }; }
-        catch (e) { agentsCache = { at: Date.now(), list: [], error: "sortie JSON illisible" }; }
+        catch (e) { agentsCache = { at: Date.now(), list: [], error: "unreadable JSON output" }; }
       }
       resolve(agentsCache);
     });
@@ -95,7 +96,46 @@ function ownerOf(cwd) {
   return best;
 }
 
+/* --------------------------------------------------- génération des étapes */
+
+// Une génération par projet, jamais deux. L'appel dure une à trois minutes : on ne
+// fait pas attendre la requête HTTP, on note l'état ici et l'interface le lit au
+// rafraîchissement suivant. C'est le seul état propre à l'app avec les terminaux —
+// il meurt avec le process, et rien ne s'en trouve perdu : le résultat, lui, est
+// déjà dans le MILESTONES.md du dépôt.
+const gens = new Map(); // projectId -> { running, startedAt, endedAt, added, error }
+
+function startGeneration(proj) {
+  const running = gens.get(proj.id);
+  if (running?.running) return running;
+
+  const job = { running: true, startedAt: Date.now(), endedAt: 0, added: 0, error: null };
+  gens.set(proj.id, job);
+
+  (async () => {
+    const before = M.read(proj.path, proj.name);
+    const proposal = await propose({ project: proj, items: M.items(before.blocks) });
+    // On RELIT le fichier après l'appel. Deux minutes ont passé : l'utilisateur a pu
+    // cocher une étape, un Claude du projet a pu écrire dedans. Greffer sur la version
+    // d'avant leur passerait dessus.
+    const after = M.read(proj.path, proj.name);
+    const { blocks, added } = M.graft(after.blocks, proposal);
+    M.write(after.file, blocks);
+    if (after.legacy && fs.existsSync(after.legacy)) fs.rmSync(after.legacy);
+    job.added = added;
+  })()
+    .catch((e) => { job.error = String(e.message || e).slice(0, 300); })
+    .finally(() => { job.running = false; job.endedAt = Date.now(); });
+
+  return job;
+}
+
 /* ------------------------------------------------------------------- état */
+
+// Ce que le client voit d'une étape. `depth` et `parentId` portent la hiérarchie :
+// milestone (depth 0) dans la vue d'ensemble, étapes (depth 1) au clic sur le projet.
+const pick = ({ id, depth, parentId, status, title, detail, due, done }) =>
+  ({ id, depth, parentId, status, title, detail, due, done });
 
 async function buildState() {
   const agents = await readAgents();
@@ -113,13 +153,18 @@ async function buildState() {
     if (exists) {
       const r = M.read(p.path, p.name);
       file = r.file; hasFile = r.exists;
-      list = M.items(r.blocks).map(({ id, status, title, detail, due, done }) => ({ id, status, title, detail, due, done }));
+      list = M.items(r.blocks).map(pick);
     }
+    // La vue d'ensemble ne compte QUE les milestones. Un projet qui découpe finement ses
+    // étapes paraîtrait sinon à la traîne d'un projet qui n'en note aucune.
+    const mains = list.filter((m) => !m.parentId);
     const mine = terms.filter((t) => t.projectId === p.id);
     out.push({
       ...p, exists, file, hasFile,
       steps: list,
       stats: M.stats(list),
+      mainStats: M.stats(mains),
+      gen: gens.get(p.id) || null,
       // `here` = ce que la barre latérale affiche sous le projet : les panneaux de
       // Pyramis d'abord, puis les sessions ouvertes ailleurs sur la machine.
       sessions: agents.list
@@ -152,7 +197,7 @@ async function readBody(req) {
   const chunks = [];
   for await (const c of req) {
     chunks.push(c);
-    if (chunks.reduce((n, x) => n + x.length, 0) > 8 << 20) throw new Error("corps trop gros");
+    if (chunks.reduce((n, x) => n + x.length, 0) > 8 << 20) throw new Error("body too large");
   }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -160,7 +205,7 @@ async function readBody(req) {
 
 function serveFile(res, file) {
   fs.readFile(file, (err, buf) => {
-    if (err) { res.writeHead(404).end("introuvable"); return; }
+    if (err) { res.writeHead(404).end("not found"); return; }
     res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream", "cache-control": "no-cache" });
     res.end(buf);
   });
@@ -181,7 +226,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && p === "/api/browse") {
       const dir = path.resolve(url.searchParams.get("dir") || path.join(HOME, "Documents"));
-      if (!dir.startsWith(HOME)) return json(res, 400, { error: "hors du dossier personnel" });
+      if (!dir.startsWith(HOME)) return json(res, 400, { error: "outside the home folder" });
       const entries = await fsp.readdir(dir, { withFileTypes: true });
       const known = new Set(projects.map((x) => x.path));
       return json(res, 200, {
@@ -197,8 +242,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && p === "/api/projects") {
       const b = await readBody(req);
       const target = path.resolve(b.path || "");
-      if (!target.startsWith(HOME) || !fs.existsSync(target)) return json(res, 400, { error: "dossier invalide" });
-      if (projects.some((x) => x.path === target)) return json(res, 409, { error: "projet déjà suivi" });
+      if (!target.startsWith(HOME) || !fs.existsSync(target)) return json(res, 400, { error: "invalid folder" });
+      if (projects.some((x) => x.path === target)) return json(res, 409, { error: "project already tracked" });
       const proj = { id: crypto.randomBytes(4).toString("hex"), name: (b.name || path.basename(target)).slice(0, 60), emoji: (b.emoji || "📁").slice(0, 8), path: target, order: projects.length };
       projects.push(proj); saveRegistry(projects);
       return json(res, 200, proj);
@@ -207,7 +252,7 @@ const server = http.createServer(async (req, res) => {
     const projMatch = /^\/api\/projects\/([a-f0-9]+)$/.exec(p);
     if (projMatch) {
       const proj = byId(projMatch[1]);
-      if (!proj) return json(res, 404, { error: "projet inconnu" });
+      if (!proj) return json(res, 404, { error: "unknown project" });
       if (req.method === "PATCH") {
         const b = await readBody(req);
         if (typeof b.name === "string") proj.name = b.name.slice(0, 60);
@@ -217,7 +262,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, proj);
       }
       if (req.method === "DELETE") {
-        // On retire le projet du registre. Le ETAPES.md, lui, reste dans le dépôt :
+        // On retire le projet du registre. Le MILESTONES.md, lui, reste dans le dépôt :
         // l'app ne supprime jamais un fichier de l'utilisateur.
         projects = projects.filter((x) => x.id !== proj.id); saveRegistry(projects);
         return json(res, 200, { ok: true });
@@ -227,9 +272,9 @@ const server = http.createServer(async (req, res) => {
     const msMatch = /^\/api\/projects\/([a-f0-9]+)\/steps$/.exec(p);
     if (msMatch && req.method === "PUT") {
       const proj = byId(msMatch[1]);
-      if (!proj) return json(res, 404, { error: "projet inconnu" });
+      if (!proj) return json(res, 404, { error: "unknown project" });
       const b = await readBody(req);
-      if (!Array.isArray(b.items)) return json(res, 400, { error: "items manquant" });
+      if (!Array.isArray(b.items)) return json(res, 400, { error: "missing items" });
       // On relit le disque à chaque enregistrement : le fichier a pu bouger entre-temps
       // (édité à la main, ou par un Claude qui tourne dans ce projet-là).
       const r = M.read(proj.path, proj.name);
@@ -238,14 +283,29 @@ const server = http.createServer(async (req, res) => {
       // Le contenu vient d'être réécrit sous le nouveau nom : l'ancien fichier ferait
       // désormais doublon, avec le risque qu'on l'édite en croyant agir sur l'app.
       if (r.legacy && fs.existsSync(r.legacy)) fs.rmSync(r.legacy);
-      return json(res, 200, { ok: true, items: M.items(merged).map(({ id, status, title, detail, due, done }) => ({ id, status, title, detail, due, done })) });
+      return json(res, 200, { ok: true, items: M.items(merged).map(pick) });
+    }
+
+    // Générer les étapes : le modèle lit le dépôt et propose des milestones, qui sont
+    // GREFFÉS sur le fichier — rien n'est remplacé, aucun statut n'est touché.
+    // La réponse part tout de suite : l'appel dure des minutes, l'état se lit ensuite
+    // dans /api/state.
+    const genMatch = /^\/api\/projects\/([a-f0-9]+)\/generate$/.exec(p);
+    if (genMatch && req.method === "POST") {
+      const proj = byId(genMatch[1]);
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
+      const job = gens.get(proj.id);
+      if (job?.running) return json(res, 409, { error: "generation already running" });
+      startGeneration(proj);
+      return json(res, 202, { started: true });
     }
 
     if (req.method === "POST" && p === "/api/terminals") {
       const b = await readBody(req);
       const proj = byId(b.projectId || "");
-      if (!proj) return json(res, 404, { error: "projet inconnu" });
-      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "dossier du projet introuvable" });
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
       const t = terminals.spawn({
         projectId: proj.id, cwd: proj.path,
         kind: b.kind === "shell" ? "shell" : "claude",
@@ -262,8 +322,8 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const proj = byId(b.projectId || "");
       const sid = String(b.sessionId || "");
-      if (!proj) return json(res, 404, { error: "projet inconnu" });
-      if (!/^[A-Za-z0-9-]{8,64}$/.test(sid)) return json(res, 400, { error: "identifiant de session invalide" });
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!/^[A-Za-z0-9-]{8,64}$/.test(sid)) return json(res, 400, { error: "invalid session id" });
       // La session reprend dans SON dossier, pas dans celui du projet : une session de
       // PDM/qcbm-ring rouverte à la racine de PDM travaillerait à côté de ses fichiers.
       // On n'accepte que des chemins situés sous le projet — le client ne choisit pas
@@ -281,7 +341,7 @@ const server = http.createServer(async (req, res) => {
     const termMatch = /^\/api\/terminals\/([a-f0-9]+)$/.exec(p);
     if (termMatch && req.method === "DELETE") return json(res, 200, { ok: terminals.kill(termMatch[1]) });
 
-    res.writeHead(404).end("introuvable");
+    res.writeHead(404).end("not found");
   } catch (e) {
     json(res, 500, { error: String(e.message || e) });
   }
@@ -310,7 +370,7 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`Pyramis — http://127.0.0.1:${PORT}`);
-  console.log(`${projects.length} projets suivis · registre : ${REGISTRY}`);
+  console.log(`${projects.length} projects tracked · registry: ${REGISTRY}`);
 });
 
 // Sans ça, quitter le serveur laisserait des `claude` orphelins rattachés à des

@@ -1,16 +1,16 @@
 // Copyright © 2026 Paul Gregory. Tous droits réservés.
 // UI de Pyramis. Trois responsabilités : afficher l'avancement des projets, éditer
-// les étapes (qui partent dans le ETAPES.md du dépôt), et tenir N terminaux vivants.
+// les étapes (qui partent dans le MILESTONES.md du dépôt), et tenir N terminaux vivants.
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
 
 const STATUS = {
-  todo: { label: "À faire", next: "doing" },
-  doing: { label: "En cours", next: "blocked" },
-  blocked: { label: "Bloqué", next: "done" },
-  done: { label: "Fait", next: "todo" },
+  todo: { label: "To do", next: "doing" },
+  doing: { label: "Doing", next: "blocked" },
+  blocked: { label: "Blocked", next: "done" },
+  done: { label: "Done", next: "todo" },
 };
 const ORDER = ["todo", "doing", "blocked", "done"];
 
@@ -43,6 +43,12 @@ async function refresh() {
 const project = (id) => state.data?.projects.find((p) => p.id === id) || null;
 const current = () => project(state.selected);
 
+// Deux niveaux, et la règle qui les sépare tient en une ligne : la vue d'ensemble ne
+// montre QUE les milestones, le détail n'apparaît qu'une fois le projet ouvert. Sans ça,
+// huit projets × leurs petites étapes redonnent la page illisible qu'on fuyait.
+const mains = (p) => p.steps.filter((m) => !m.parentId);
+const kids = (p, id) => p.steps.filter((m) => m.parentId === id);
+
 /* --------------------------------------------------------------- sidebar */
 
 function renderSide() {
@@ -54,16 +60,16 @@ function renderSide() {
     b.append(el("span", "pe", p.emoji));
     b.append(el("span", "pn", p.name));
     const meta = el("span", "pmeta");
-    if (p.stats.total) meta.append(el("span", null, `${p.stats.done}/${p.stats.total}`));
+    if (p.mainStats.total) meta.append(el("span", null, `${p.mainStats.done}/${p.mainStats.total}`));
     if (!p.exists) meta.append(el("span", null, "⚠"));
     b.append(meta);
     b.onclick = () => { state.selected = p.id; writeHash(); render(); };
     box.append(b);
 
-    if (p.stats.total) {
+    if (p.mainStats.total) {
       const g = el("div", "gauge");
       const i = el("i");
-      i.style.width = `${Math.round((p.stats.done / p.stats.total) * 100)}%`;
+      i.style.width = `${Math.round((p.mainStats.done / p.mainStats.total) * 100)}%`;
       g.append(i);
       box.append(g);
     }
@@ -84,13 +90,13 @@ function renderSide() {
       s.append(el("span", "sdot"));
       s.append(el("span", "sname", r.label));
       if (r.kind === "ext") {
-        s.append(el("span", "stag", "ailleurs"));
+        s.append(el("span", "stag", "elsewhere"));
         s.title = r.background
-          ? "Session d'arrière-plan : la reprendre dans un panneau ici."
-          : "Session ouverte dans un autre terminal. L'ouvrir ici crée une branche — celle d'origine continue intacte.";
+          ? "Background session: pick it up in a pane here."
+          : "Session open in another terminal. Opening it here branches off — the original one carries on untouched.";
         s.onclick = () => joinSession(p, r);
       } else {
-        s.title = "Aller à ce terminal";
+        s.title = "Go to this terminal";
         s.onclick = () => focusPane(r.id);
       }
       list.append(s);
@@ -99,7 +105,7 @@ function renderSide() {
   }
   $(".proj.all").classList.toggle("on", !state.selected);
   const n = state.data.liveCount;
-  $("#live").innerHTML = `<b>${n}</b> session${n > 1 ? "s" : ""} Claude`;
+  $("#live").innerHTML = `<b>${n}</b> Claude session${n > 1 ? "s" : ""}`;
 }
 
 // Un panneau déjà ouvert : on bascule sur la vue, on le met en évidence, on lui donne
@@ -116,8 +122,8 @@ function focusPane(id) {
 
 async function joinSession(p, r) {
   if (!r.background && !confirm(
-    `« ${r.label} » tourne dans un autre terminal.\n\n` +
-    `L'ouvrir ici en reprend le fil dans une branche : la session d'origine continue de son côté, intacte.`
+    `“${r.label}” is running in another terminal.\n\n` +
+    `Opening it here picks up the thread in a branch: the original session carries on, untouched.`
   )) return;
   try {
     const { id } = await api("POST", "/api/attach", {
@@ -126,23 +132,23 @@ async function joinSession(p, r) {
     showView("terms");
     await refresh();
     focusPane(id);
-  } catch (e) { alert("Impossible de rejoindre cette session : " + e.message); }
+  } catch (e) { alert("Could not join this session: " + e.message); }
 }
 
 /* ------------------------------------------------------- vue d'ensemble */
 
 function renderOverview(view) {
   const head = el("div", "phead");
-  head.append(el("h1", null, "Tous les projets"));
+  head.append(el("h1", null, "All projects"));
   head.append(el("span", "grow"));
   view.append(head);
 
   const sub = el("div", "path");
   sub.style.color = "var(--faint)";
   sub.style.fontSize = "12px";
-  const doing = state.data.projects.reduce((n, p) => n + p.stats.doing, 0);
-  const blocked = state.data.projects.reduce((n, p) => n + p.stats.blocked, 0);
-  sub.textContent = `${state.data.projects.length} projets · ${doing} étape${doing > 1 ? "s" : ""} en cours · ${blocked} bloquée${blocked > 1 ? "s" : ""}`;
+  const doing = state.data.projects.reduce((n, p) => n + p.mainStats.doing, 0);
+  const blocked = state.data.projects.reduce((n, p) => n + p.mainStats.blocked, 0);
+  sub.textContent = `${state.data.projects.length} projects · ${doing} milestone${doing > 1 ? "s" : ""} in progress · ${blocked} blocked`;
   view.append(sub);
 
   const cards = el("div", "cards");
@@ -154,17 +160,20 @@ function renderOverview(view) {
     c.append(h);
 
     const bits = [];
-    if (!p.exists) bits.push("dossier introuvable");
-    else if (!p.hasFile) bits.push("aucune étape notée");
-    else bits.push(`${p.stats.done}/${p.stats.total} étapes`);
+    if (!p.exists) bits.push("folder not found");
+    else if (!p.hasFile) bits.push("no milestone written down");
+    else bits.push(`${p.mainStats.done}/${p.mainStats.total} milestones`);
+    const small = p.stats.total - p.mainStats.total;
+    if (small) bits.push(`${small} step${small > 1 ? "s" : ""}`);
     if (p.sessions.length) bits.push(`${p.sessions.length} session${p.sessions.length > 1 ? "s" : ""}`);
     const opened = p.terminals.filter((t) => t.alive).length;
-    if (opened) bits.push(opened > 1 ? `${opened} terminaux ici` : "1 terminal ici");
+    if (opened) bits.push(opened > 1 ? `${opened} terminals here` : "1 terminal here");
     c.append(el("div", "sub", bits.join(" · ")));
 
-    // La carte ne montre QUE ce qui bouge ou coince. Une liste exhaustive
-    // reproduirait le problème qu'on essaie de régler.
-    const hot = p.steps.filter((m) => m.status === "doing" || m.status === "blocked");
+    // La carte ne montre QUE les milestones, et parmi eux ceux qui bougent ou coincent.
+    // Les petites étapes attendent qu'on ouvre le projet : les faire remonter ici
+    // reproduirait la page illisible qu'on essaie de régler.
+    const hot = mains(p).filter((m) => m.status === "doing" || m.status === "blocked");
     if (hot.length) {
       const ul = el("ul");
       for (const m of hot.slice(0, 5)) {
@@ -172,20 +181,26 @@ function renderOverview(view) {
         li.append(el("span", null, m.status === "blocked" ? "⛔" : "▸"));
         li.append(el("b", null, m.title));
         if (m.due) li.append(dueTag(m.due));
+        const sub = kids(p, m.id);
+        if (sub.length) li.append(el("span", "prog", `${sub.filter((k) => k.status === "done").length}/${sub.length}`));
         ul.append(li);
       }
       c.append(ul);
     } else {
-      c.append(el("div", "empty", p.stats.total ? "rien en cours" : "pas encore d'étapes"));
+      c.append(el("div", "empty", p.mainStats.total ? "nothing in progress" : "no map yet — ✦ draws a first one"));
     }
 
+    const note = genNote(p);
+    if (note) c.append(note);
+
     const row = el("div", "ms-row");
-    row.style.cssText = "display:flex;gap:6px;margin-top:12px";
-    const open = el("button", "btn ghost", "Ouvrir");
+    row.style.cssText = "display:flex;gap:6px;margin-top:12px;flex-wrap:wrap";
+    const open = el("button", "btn ghost", "Open");
     open.onclick = () => { state.selected = p.id; writeHash(); render(); };
     const term = el("button", "btn ghost", "＋ Terminal");
     term.onclick = () => openTerminal(p.id, "claude");
     row.append(open, term);
+    if (p.exists) row.append(genButton(p, "btn ghost"));
     c.append(row);
     cards.append(c);
   }
@@ -195,8 +210,51 @@ function renderOverview(view) {
 function dueTag(due) {
   const days = Math.round((new Date(due + "T12:00:00") - Date.now()) / 86400000);
   const t = el("span", "due" + (days < 0 ? " late" : days <= 7 ? " soon" : ""), due);
-  t.title = days < 0 ? `en retard de ${-days} j` : `dans ${days} j`;
+  t.title = days < 0 ? `${-days} day${days < -1 ? "s" : ""} late` : `in ${days} day${days > 1 ? "s" : ""}`;
   return t;
+}
+
+/* --------------------------------------------------- génération des étapes */
+
+// Un bouton, et le modèle va lire le dépôt. Ce qu'il propose est GREFFÉ : les milestones
+// et les étapes qui manquent sont ajoutés, rien n'est remplacé, aucun statut n'est
+// touché. C'est ce qui permet d'appuyer sans se demander ce qu'on va perdre — et ce
+// qui rend le bouton utile deux fois : la première carte, puis les suivantes.
+const GEN_TITLE =
+  "Claude reads the repository (README, CLAUDE.md, latest commits) and proposes milestones.\n" +
+  "They are ADDED to MILESTONES.md: nothing is replaced, no status is touched.\n" +
+  "Expect one to three minutes.";
+
+function genButton(p, cls) {
+  const busy = Boolean(p.gen?.running);
+  const b = el("button", cls + (busy ? " busy" : ""), busy ? "◌ Reading the repo…" : p.hasFile ? "✦ Complete" : "✦ Generate milestones");
+  b.title = GEN_TITLE;
+  b.disabled = busy || !p.exists;
+  b.onclick = () => generate(p);
+  return b;
+}
+
+// Ce que la dernière génération a donné. Affiché tant que le projet est à l'écran :
+// l'appel est long, et une erreur avalée en silence ferait croire à un bouton mort.
+function genNote(p) {
+  const g = p.gen;
+  if (!g || g.running) return null;
+  // Une erreur reste affichée : c'est la seule trace d'un clic qui n'a rien donné.
+  // Un succès, lui, s'efface — le résultat est sous les yeux, dans les cartes.
+  if (g.error) return el("div", "gen err", "✕ " + g.error);
+  if (!g.endedAt || Date.now() - g.endedAt > 10 * 60 * 1000) return null;
+  return el("div", "gen", g.added ? `✓ ${g.added} line${g.added > 1 ? "s" : ""} added` : "✓ nothing to add, the map is up to date");
+}
+
+async function generate(p) {
+  if (p.gen?.running) return;
+  try {
+    await api("POST", `/api/projects/${p.id}/generate`);
+    // On peint tout de suite l'état « en cours » : le rafraîchissement suivant, quatre
+    // secondes plus tard, prendrait le relais trop tard pour que le clic ait l'air pris.
+    p.gen = { running: true, startedAt: Date.now(), endedAt: 0, added: 0, error: null };
+    render();
+  } catch (e) { alert("Generation failed: " + e.message); }
 }
 
 /* ---------------------------------------------------------- vue projet */
@@ -208,45 +266,51 @@ function renderProject(view, p) {
   head.append(el("span", "path", p.path.replace(/^\/Users\/[^/]+/, "~")));
   head.append(el("span", "grow"));
 
-  const bClaude = el("button", "btn primary", "＋ Claude ici");
+  const bClaude = el("button", "btn primary", "＋ Claude here");
   bClaude.onclick = () => openTerminal(p.id, "claude");
   const bShell = el("button", "btn", "＋ Shell");
   bShell.onclick = () => openTerminal(p.id, "shell");
-  const bDrop = el("button", "btn ghost", "Retirer");
-  bDrop.title = "Retire le projet du suivi. Le ETAPES.md reste dans le dépôt.";
+  const bDrop = el("button", "btn ghost", "Remove");
+  bDrop.title = "Stops tracking the project. Its MILESTONES.md stays in the repository.";
   bDrop.onclick = async () => {
-    if (!confirm(`Retirer « ${p.name} » du suivi ?\nAucun fichier ne sera supprimé.`)) return;
+    if (!confirm(`Stop tracking “${p.name}”?\nNo file will be deleted.`)) return;
     await api("DELETE", `/api/projects/${p.id}`);
     state.selected = "";
     writeHash();
     refresh();
   };
-  head.append(bClaude, bShell, bDrop);
+  head.append(genButton(p, "btn"), bClaude, bShell, bDrop);
   view.append(head);
 
   if (!p.exists) {
-    view.append(el("div", "empty", "Le dossier de ce projet n'existe plus à cette adresse."));
+    view.append(el("div", "empty", "This project's folder is no longer at that address."));
     return;
   }
 
   const sessions = el("div", "path");
   sessions.style.cssText = "color:var(--faint);font-size:12px";
   sessions.textContent = p.sessions.length
-    ? "Sessions vivantes : " + p.sessions.map((s) => `${s.name || s.sessionId.slice(0, 8)} (${s.kind})`).join(" · ")
-    : (p.hasFile ? "" : "ETAPES.md sera créé à la première étape.");
+    ? "Live sessions: " + p.sessions.map((s) => `${s.name || s.sessionId.slice(0, 8)} (${s.kind})`).join(" · ")
+    : (p.hasFile ? "" : "MILESTONES.md will be created with the first milestone.");
   view.append(sessions);
+
+  const note = genNote(p);
+  if (note) view.append(note);
 
   const cols = el("div", "cols4");
   for (const key of ORDER) {
     const col = el("div", "col " + key);
     const h = el("h3");
     h.append(el("span", null, STATUS[key].label));
-    const list = p.steps.filter((m) => m.status === key);
+    // Les colonnes rangent les MILESTONES. Une petite étape suit son milestone où qu'il soit :
+    // la sortir de sa carte pour la poser dans une autre colonne casserait le seul
+    // fil qui lui donne un sens.
+    const list = mains(p).filter((m) => m.status === key);
     h.append(el("em", null, String(list.length)));
     col.append(h);
     for (const m of list) col.append(stepCard(p, m));
     if (key === "todo") {
-      const add = el("button", "newms", "＋ Nouvelle étape");
+      const add = el("button", "newms", "＋ New milestone");
       add.onclick = () => addStep(p);
       col.append(add);
     }
@@ -258,7 +322,7 @@ function renderProject(view, p) {
 function stepCard(p, m) {
   const card = el("div", "ms");
 
-  const title = el("div", "t", m.title || "(sans titre)");
+  const title = el("div", "t", m.title || "(untitled)");
   title.onclick = () => edit(title, m.title, (v) => save(p, m, { title: v }));
   card.append(title);
 
@@ -266,9 +330,20 @@ function stepCard(p, m) {
   detail.onclick = () => edit(detail, m.detail, (v) => save(p, m, { detail: v }), true);
   card.append(detail);
 
+  // Les petites étapes du milestone, à l'intérieur de sa carte. C'est le « détail
+  // intermédiaire » : invisible depuis la vue d'ensemble, à portée de clic ici.
+  const sub = kids(p, m.id);
+  const box = el("div", "subs");
+  for (const k of sub) box.append(subRow(p, k));
+  const addSub = el("button", "addsub", "＋ step");
+  addSub.title = "Break this milestone into concrete moves";
+  addSub.onclick = () => addStep(p, m.id);
+  box.append(addSub);
+  card.append(box);
+
   const row = el("div", "row");
   const st = el("button", "chip", STATUS[m.status].label);
-  st.title = "Faire avancer le statut";
+  st.title = "Move the status forward";
   st.onclick = () => save(p, m, { status: STATUS[m.status].next });
   row.append(st);
 
@@ -278,36 +353,84 @@ function stepCard(p, m) {
     const due = el("input", "chip");
     due.type = "date";
     due.value = m.due || "";
-    due.title = "Échéance";
+    due.title = "Due date";
     due.style.cssText = "padding:1px 5px";
     due.onchange = () => save(p, m, { due: due.value || null });
     row.append(due);
   }
 
-  row.append(el("span", "grow"));
+  if (sub.length) {
+    const done = sub.filter((k) => k.status === "done").length;
+    const prog = el("span", "prog", `${done}/${sub.length}`);
+    prog.title = "Steps done";
+    row.append(prog);
+  }
+
+  // Les deux gestes de fin de carte tiennent dans un même groupe : la ligne peut
+  // passer à la ligne (colonne étroite, titre long), mais jamais entre eux — un ✕
+  // seul sur sa ligne ressemblait à un bouton oublié là.
+  const acts = el("span", "acts");
 
   // Le geste central : passer d'une étape écrite à un Claude qui travaille dessus,
   // dans le bon dossier, sans retaper le contexte.
   // Rien à attaquer sur une étape déjà faite : le bouton n'apparaît pas.
   if (m.status !== "done") {
-    const go = el("button", "chip go", "▶ Attaquer");
-    go.title = "Ouvre un terminal Claude dans ce projet, avec l'étape déjà collée (sans l'envoyer).";
+    const go = el("button", "chip go", "▶ Start");
+    go.title = "Opens a Claude terminal in this project, with the milestone and its steps already pasted (not sent).";
     go.onclick = () => openTerminal(p.id, "claude", promptFor(p, m), m.title);
-    row.append(go);
+    acts.append(go);
   }
 
   const del = el("button", "chip", "✕");
-  del.title = "Supprimer cette étape";
-  del.onclick = () => { if (confirm(`Supprimer « ${m.title} » ?`)) save(p, m, null); };
-  row.append(del);
+  del.title = "Delete this milestone";
+  del.onclick = () => {
+    const warn = sub.length ? `\nIts ${sub.length} steps go with it.` : "";
+    if (confirm(`Delete “${m.title}”?${warn}`)) save(p, m, null);
+  };
+  acts.append(del);
+  row.append(acts);
 
   card.append(row);
   return card;
 }
 
+// Une étape tient sur une ligne : sa pastille de statut, son titre, et les deux
+// gestes qu'on lui fait vraiment — l'attaquer, la supprimer. Tout le reste (note,
+// échéance) appartient au milestone : le répéter à chaque ligne noierait la carte.
+function subRow(p, k) {
+  const row = el("div", "sub " + k.status);
+  const mark = el("button", "mark");
+  mark.title = `${STATUS[k.status].label} → ${STATUS[STATUS[k.status].next].label}`;
+  mark.onclick = () => save(p, k, { status: STATUS[k.status].next });
+  row.append(mark);
+
+  const t = el("span", "st", k.title || "(untitled)");
+  t.onclick = () => edit(t, k.title, (v) => save(p, k, { title: v }));
+  row.append(t);
+
+  if (k.status !== "done") {
+    const go = el("button", "act", "▶");
+    go.title = "Open a Claude on this step";
+    go.onclick = () => openTerminal(p.id, "claude", promptFor(p, k), k.title);
+    row.append(go);
+  }
+  const del = el("button", "act", "✕");
+  del.title = "Delete this step";
+  del.onclick = () => { if (confirm(`Delete “${k.title}”?`)) save(p, k, null); };
+  row.append(del);
+  return row;
+}
+
+// Le texte déposé dans l'invite. Pour un milestone, ses étapes non faites partent avec :
+// c'est exactement le contexte qu'on retaperait à la main sinon.
 const promptFor = (p, m) => {
   const detail = (m.detail || "").replace(/\s+/g, " ").trim();
-  return `Étape du projet ${p.name} : ${m.title}.` + (detail ? ` Contexte : ${detail}` : "") + ` Propose-moi d'abord comment tu comptes t'y prendre.`;
+  const sub = kids(p, m.id).filter((k) => k.status !== "done").map((k) => `— ${k.title}`);
+  const what = m.parentId ? "Step" : "Milestone";
+  return `${what} of project ${p.name}: ${m.title}.` +
+    (detail ? ` Context: ${detail}` : "") +
+    (sub.length ? ` What is left underneath:\n${sub.join("\n")}\n` : "") +
+    ` Tell me first how you plan to go about it.`;
 };
 
 // Édition sur place : on remplace le bloc par un textarea, on enregistre au blur.
@@ -335,28 +458,35 @@ function edit(node, value, onSave, multiline = false) {
 // Un enregistrement = la liste complète du projet renvoyée au serveur, qui la
 // refusionne sur le fichier relu du disque. Pas de patch partiel : le fichier peut
 // avoir été modifié à la main entre-temps, et c'est lui qui fait foi.
+// Supprimer un milestone emporte ses étapes : orphelines, elles remonteraient au premier
+// niveau et se retrouveraient milestones à leur tour.
 async function save(p, m, patch) {
+  const drop = patch === null ? new Set([m.id, ...kids(p, m.id).map((k) => k.id)]) : null;
   const items = p.steps
-    .map((x) => (x.id === m.id ? (patch === null ? null : { ...x, ...patch }) : x))
+    .map((x) => (drop ? (drop.has(x.id) ? null : x) : x.id === m.id ? { ...x, ...patch } : x))
     .filter(Boolean);
   try {
     const out = await api("PUT", `/api/projects/${p.id}/steps`, { items });
     p.steps = out.items;
     refresh();
   } catch (e) {
-    alert("Enregistrement impossible : " + e.message);
+    alert("Could not save: " + e.message);
   }
 }
 
-async function addStep(p) {
-  const title = prompt("Nouvelle étape :");
+async function addStep(p, parentId = null) {
+  const title = prompt(parentId ? "New step:" : "New milestone:");
   if (!title || !title.trim()) return;
-  const items = [...p.steps, { id: "new-" + Math.random().toString(36).slice(2, 8), status: "todo", title: title.trim(), detail: "", due: null }];
+  const items = [...p.steps, {
+    id: "new-" + Math.random().toString(36).slice(2, 8),
+    depth: parentId ? 1 : 0, parentId,
+    status: "todo", title: title.trim(), detail: "", due: null,
+  }];
   try {
     const out = await api("PUT", `/api/projects/${p.id}/steps`, { items });
     p.steps = out.items;
     refresh();
-  } catch (e) { alert("Enregistrement impossible : " + e.message); }
+  } catch (e) { alert("Could not save: " + e.message); }
 }
 
 /* ------------------------------------------------------------ terminaux */
@@ -369,7 +499,7 @@ async function openTerminal(projectId, kind, seed, label) {
     const pane = panes.get(id);
     if (pane && seed) { pane.seed = seed; pane.text = seed; }
     pane?.term.focus();
-  } catch (e) { alert("Terminal impossible : " + e.message); }
+  } catch (e) { alert("Could not open a terminal: " + e.message); }
 }
 
 function renderTerms() {
@@ -384,7 +514,7 @@ function renderTerms() {
   $("#term-count").textContent = String(live.filter((t) => t.alive).length);
   $$(".blank", grid).forEach((n) => n.remove());
   if (!live.length) {
-    grid.append(el("div", "blank", "Aucun terminal. Ouvre-en un depuis un projet, ou depuis le bouton ▶ d'une étape."));
+    grid.append(el("div", "blank", "No terminal yet. Open one from a project, or from the ▶ button of a milestone."));
     return;
   }
 
@@ -406,19 +536,19 @@ function makePane(t) {
 
   // Le collage automatique peut rater (un dialogue de Claude l'avale). Ce bouton
   // reste le filet : l'étape est toujours à un clic, jamais perdue.
-  const paste = el("button", null, "⌥ étape");
-  paste.title = "Coller l'étape dans l'invite (sans l'envoyer)";
+  const paste = el("button", null, "⌥ step");
+  paste.title = "Paste the step into the prompt (without sending it)";
   paste.style.display = "none";
   paste.onclick = () => pasteSeed(t.id);
   head.append(paste);
 
   const solo = el("button", null, "⤢");
-  solo.title = "Une seule colonne";
+  solo.title = "Single column";
   solo.onclick = () => { $("#cols").value = "1"; setCols(); };
   const close = el("button", null, "✕");
-  close.title = "Fermer et arrêter la session";
+  close.title = "Close and stop the session";
   close.onclick = async () => {
-    if (t.alive && !confirm("Arrêter cette session ?")) return;
+    if (t.alive && !confirm("Stop this session?")) return;
     await api("DELETE", `/api/terminals/${t.id}`);
     refresh();
   };
@@ -463,7 +593,7 @@ function makePane(t) {
       // savoir si un dialogue est à l'écran plutôt que l'invite de saisie.
       pane.tail = (pane.tail + m.d.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")).slice(-3000);
     }
-    else if (m.t === "exit") { term.write(`\r\n\x1b[90m— session terminée (code ${m.code}) —\x1b[0m\r\n`); refresh(); }
+    else if (m.t === "exit") { term.write(`\r\n\x1b[90m— session ended (code ${m.code}) —\x1b[0m\r\n`); refresh(); }
   };
   term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ t: "in", d })));
   new ResizeObserver(() => resize(t.id)).observe(host);
@@ -580,7 +710,7 @@ async function browse(dir) {
 
   if (data.parent) {
     const li = el("li");
-    const b = el("button", "up", "‹ dossier parent");
+    const b = el("button", "up", "‹ parent folder");
     b.onclick = (e) => { e.preventDefault(); browse(data.parent); };
     li.append(b); ul.append(li);
   }
@@ -588,11 +718,11 @@ async function browse(dir) {
     const li = el("li");
     const b = el("button");
     b.append(el("span", null, "📁"), el("span", null, d.name));
-    if (d.known) b.append(el("span", "known", "déjà suivi"));
+    if (d.known) b.append(el("span", "known", "already tracked"));
     b.onclick = async (e) => {
       e.preventDefault();
       if (d.known) return browse(d.path);
-      if (confirm(`Suivre « ${d.name} » ?\nOK pour l'ajouter, Annuler pour entrer dedans.`)) {
+      if (confirm(`Track “${d.name}”?\nOK to add it, Cancel to go inside.`)) {
         await api("POST", "/api/projects", { path: d.path, name: d.name });
         $("#browser").close();
         refresh();

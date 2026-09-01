@@ -5,45 +5,72 @@ lancer le travail sans changer de fenêtre.
 
 ## Ce que ça fait
 
-**Une vue d'ensemble qui ne montre que ce qui bouge.** Chaque projet affiche ses
-étapes en cours et bloquées — pas la liste complète, qui reproduirait le problème
-qu'on cherche à régler.
+**Deux niveaux, et un seul visible de loin.** La vue d'ensemble ne montre que les
+MILESTONES — les résultats qu'on peut annoncer — et parmi eux ceux qui bougent ou
+coincent. Les petites étapes attendent qu'on ouvre le projet : elles sont dans la
+carte de leur milestone, avec leur compte (`2/5`). Faire remonter le détail de huit
+projets sur une même page reproduirait le problème qu'on cherche à régler.
 
-**Des étapes qui vivent dans les dépôts.** Un `ETAPES.md` à la racine de chaque
-projet, en markdown ordinaire :
+**Des étapes qui vivent dans les dépôts.** Un `MILESTONES.md` à la racine de chaque
+projet, en markdown ordinaire. Une puce à la marge est un milestone, une puce indentée
+sous elle est une étape :
 
     - [~] Détecter la 3e répétition ATTEIGNABLE @due:2026-09-20
           Le référé annule dès que la position est atteignable, pas atteinte.
+      - [x] Écrire le test des positions atteignables
+      - [ ] Brancher la détection sur le référé
     - [x] Baseline vs Stockfish niveau 3 @done:2026-09-01
 
 `[ ]` à faire · `[~]` en cours · `[!]` bloquée · `[x]` faite. Éditable à la main, lu
 par le Claude qui travaille dans le projet, versionné avec le reste.
 
+**Un bouton ✦ qui écrit la carte.** `Generate milestones` lance un `claude -p` dans
+le dossier du projet : il lit le README, le `CLAUDE.md`, les derniers commits, et
+propose des milestones découpés en étapes. La proposition est **greffée** sur le
+`MILESTONES.md` — ce qui manque est ajouté, rien n'est remplacé, aucun statut n'est
+touché. On peut donc rappuyer dessus des semaines plus tard sans rien risquer ; le
+bouton s'appelle alors `Complete`. Le prompt est dans `prompts/milestones.md`, à
+retoucher sans redémarrer le serveur.
+
 **Toutes les sessions d'un projet, sous son nom.** La barre latérale liste sous
 chaque projet les sessions Claude qui lui appartiennent — celles ouvertes ici, et
-celles lancées ailleurs sur la machine, marquées « ailleurs ». Un clic y va :
+celles lancées ailleurs sur la machine, marquées « elsewhere ». Un clic y va :
 sur un panneau de Pyramis, il le met en avant ; sur une session d'ailleurs, il en
 reprend le fil dans une branche, la session d'origine continuant intacte de son
-côté. Le bouton **Tous les projets**, en haut, ramène à la vue d'ensemble.
+côté. Le bouton **All projects**, en haut, ramène à la vue d'ensemble.
 
 **Autant de terminaux que voulu, en même temps.** Chaque panneau est un vrai
 pseudo-terminal : un vrai `claude` interactif, avec ses couleurs, son `/resume` et
 ses dialogues de permission. Rien n'est réimplémenté, donc rien ne diverge. Fermer
 l'onglet du navigateur ne tue pas les sessions ; elles se retrouvent au rechargement.
 
-**Un bouton ▶ sur chaque étape.** Il ouvre un terminal Claude dans le bon dossier
-et y dépose l'étape, prête à partir. Il n'appuie pas sur Entrée : la dernière
-décision reste à toi.
+**Un bouton ▶ sur chaque ligne.** Il ouvre un terminal Claude dans le bon dossier
+et y dépose l'étape, prête à partir — sur un milestone, ses étapes qui restent partent
+avec, en contexte. Il n'appuie pas sur Entrée : la dernière décision reste à toi.
+
+## La langue
+
+L'interface et les prompts envoyés au modèle sont en anglais ; la documentation et
+les commentaires du code restent en français. Le mot **milestone** est le même des
+deux côtés, pour qu'un bouton et un commentaire parlent de la même chose.
+
+Les titres écrits dans un `MILESTONES.md`, eux, suivent la langue du dépôt : le prompt
+demande explicitement au modèle d'écrire en français si le README et les commits le
+sont. Une carte qui change de langue en cours de route est illisible.
 
 ## Lancer
 
     ./start.sh
 
 Au premier démarrage, six projets sont pré-inscrits s'ils existent : ecdsa.fail,
-carnet Singapour, Skull King, PDM, chess hackathon, SoAI. `＋ Suivre un projet`
+carnet Singapour, Skull King, PDM, chess hackathon, SoAI. `＋ Track a project`
 ajoute les autres. Le registre est un `projects.json` éditable à la main.
 
 ## Ce que ça ne fait pas
+
+Pas de troisième niveau : un milestone, ses étapes, et c'est tout. Un fichier écrit à
+la main qui en compte davantage est relu sans erreur, mais les puces plus profondes
+remontent au niveau des étapes.
 
 Pas de suivi de quota : l'app compte les sessions vivantes, pas les jetons. Lancer
 cinq sessions Opus en parallèle vide la fenêtre de 5 h beaucoup plus vite qu'on ne

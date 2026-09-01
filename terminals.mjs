@@ -39,6 +39,11 @@ function cleanEnv() {
   return env;
 }
 
+// L'environnement de tout `claude` lancé par Pyramis — les panneaux d'ici comme la
+// génération d'étapes en arrière-plan. Les deux ont les mêmes besoins : ne pas
+// hériter des marqueurs d'imbrication, et retrouver le binaire dans le PATH.
+export const childEnv = () => ({ ...cleanEnv(), PATH: richPath(), PYRAMIS: "1" });
+
 // Lancée depuis le Finder, une app n'hérite pas du PATH du shell : `claude` et
 // `node` deviennent introuvables et le pty meurt à la seconde. On complète.
 function richPath() {
@@ -84,7 +89,7 @@ export function createTerminals() {
     const p = pty.spawn(shell, args, {
       name: "xterm-256color",
       cols: Math.max(20, cols | 0), rows: Math.max(5, rows | 0), cwd: t.cwd,
-      env: { ...cleanEnv(), PATH: richPath(), TERM: "xterm-256color", PYRAMIS: "1" },
+      env: { ...childEnv(), TERM: "xterm-256color" },
     });
     t.pty = p;
 

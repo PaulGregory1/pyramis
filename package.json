@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Suivi des projets en parallèle : jalons dans les dépôts, N sessions Claude vivantes.",
+  "description": "Suivi des projets en parallèle : milestones dans les dépôts, N sessions Claude vivantes.",
   "scripts": {
     "start": "node server.mjs",
     "postinstall": "node scripts/fix-pty.mjs",
