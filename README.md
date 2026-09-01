@@ -32,6 +32,20 @@ touché. On peut donc rappuyer dessus des semaines plus tard sans rien risquer ;
 bouton s'appelle alors `Complete`. Le prompt est dans `prompts/milestones.md`, à
 retoucher sans redémarrer le serveur.
 
+**Un graphe du code, construit sans rien demander.** Un projet qu'on met à suivre
+repart avec un graphe de connaissance Graphify dans son `graphify-out/` : quel symbole
+appelle quoi, à quelle ligne. Le Claude qui travaille ensuite dans ce dépôt l'interroge
+(`graphify query "…"`) au lieu de relire tout le code — de l'ordre de six fois moins de
+tokens par question sur un dépôt de cette taille, davantage sur les gros.
+
+La construction est **locale et gratuite** : extraction AST par tree-sitter, aucune clé
+d'API, aucun token, quelques secondes. Graphify sait aussi faire lire les docs et les
+images par un LLM ; Pyramis ne s'en sert pas, précisément pour que le geste puisse être
+automatique sans jamais rien coûter. Le graphe est exclu du dépôt par
+`.git/info/exclude`, jamais par le `.gitignore` — celui-là t'appartient. Le bouton
+`◈ Build graph` sert aux projets déjà suivis et aux graphes que le dépôt a dépassés ;
+la ligne sous le titre dit de quel commit le graphe a été tiré.
+
 **Toutes les sessions d'un projet, sous son nom.** La barre latérale liste sous
 chaque projet les sessions Claude qui lui appartiennent — celles ouvertes ici, et
 celles lancées ailleurs sur la machine, marquées « elsewhere ». Un clic y va :

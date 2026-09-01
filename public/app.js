@@ -257,6 +257,56 @@ async function generate(p) {
   } catch (e) { alert("Generation failed: " + e.message); }
 }
 
+/* --------------------------------------------------- graphe de connaissance */
+
+// Le pendant gratuit du bouton ✦ : là où la génération d'étapes appelle le modèle,
+// celle-ci lit le code par AST, en local. Un projet ajouté au registre l'a déjà reçue
+// sans rien demander ; ce bouton sert aux projets d'avant et aux graphes périmés.
+const GRAPH_TITLE =
+  "Builds a Graphify knowledge graph of the code (graphify-out/).\n" +
+  "Local AST extraction: no API key, no tokens, a few seconds.\n" +
+  "Claude then queries it instead of re-reading the whole repository.";
+
+function graphButton(p, cls) {
+  const g = p.graph;
+  const busy = Boolean(g?.job?.running);
+  const label = busy ? "◌ Reading the code…" : g?.built ? "◈ Rebuild graph" : "◈ Build graph";
+  const b = el("button", cls + (busy ? " busy" : "") + (g?.stale && !busy ? " warn" : ""), label);
+  b.title = GRAPH_TITLE;
+  b.disabled = busy || !p.exists || !state.data?.graphify;
+  if (!state.data?.graphify) b.title = "graphify is not installed — run: uv tool install graphifyy";
+  b.onclick = () => buildGraph(p);
+  return b;
+}
+
+// Une ligne, discrète, sous l'en-tête. Elle dit trois choses et pas une de plus :
+// la taille du graphe, de quel commit il a été tiré, et s'il a pris du retard.
+function graphNote(p) {
+  const g = p.graph;
+  if (!g) return null;
+  if (g.job?.error) return el("div", "gen err", "✕ " + g.job.error);
+  if (g.job?.running) return el("div", "gnote", "◌ Building the knowledge graph…");
+  if (!g.built) return null;
+  const line = el("div", "gnote" + (g.stale ? " stale" : ""));
+  line.append(el("span", null, `◈ ${g.nodes.toLocaleString("en")} nodes · ${g.edges.toLocaleString("en")} edges`));
+  // Les blancs de bord d'un item flex sont mangés : les séparateurs portent donc
+  // leur propre espacement par le `gap`, jamais par une espace dans le texte.
+  if (g.commit) line.append(el("span", "faint", `· built from ${g.commit.slice(0, 8)}`));
+  if (g.stale) line.append(el("span", "faint", "· the repo has moved since"));
+  return line;
+}
+
+async function buildGraph(p) {
+  if (p.graph?.job?.running) return;
+  try {
+    await api("POST", `/api/projects/${p.id}/graph`);
+    // Même raison que pour la génération : peindre « en cours » tout de suite, sinon
+    // le clic paraît perdu jusqu'au rafraîchissement suivant.
+    p.graph = { ...(p.graph || { built: false }), job: { running: true, startedAt: Date.now(), endedAt: 0, error: null } };
+    render();
+  } catch (e) { alert("Graph build failed: " + e.message); }
+}
+
 /* ---------------------------------------------------------- vue projet */
 
 function renderProject(view, p) {
@@ -279,7 +329,7 @@ function renderProject(view, p) {
     writeHash();
     refresh();
   };
-  head.append(genButton(p, "btn"), bClaude, bShell, bDrop);
+  head.append(graphButton(p, "btn ghost"), genButton(p, "btn"), bClaude, bShell, bDrop);
   view.append(head);
 
   if (!p.exists) {
@@ -293,6 +343,9 @@ function renderProject(view, p) {
     ? "Live sessions: " + p.sessions.map((s) => `${s.name || s.sessionId.slice(0, 8)} (${s.kind})`).join(" · ")
     : (p.hasFile ? "" : "MILESTONES.md will be created with the first milestone.");
   view.append(sessions);
+
+  const gnote = graphNote(p);
+  if (gnote) view.append(gnote);
 
   const note = genNote(p);
   if (note) view.append(note);

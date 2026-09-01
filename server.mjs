@@ -18,6 +18,7 @@ import { WebSocketServer } from "ws";
 import * as M from "./milestones.mjs";
 import { createTerminals } from "./terminals.mjs";
 import { propose } from "./generate.mjs";
+import * as G from "./graph.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -130,6 +131,27 @@ function startGeneration(proj) {
   return job;
 }
 
+/* ---------------------------------------------------- graphe de connaissance */
+
+// Même forme que `gens`, et pour la même raison : la construction dure de deux
+// secondes à quelques minutes selon la taille du dépôt, on ne fait pas attendre la
+// requête HTTP. La différence tient en une ligne — celle-ci ne coûte pas un token.
+const graphs = new Map(); // projectId -> { running, startedAt, endedAt, error }
+
+function startGraph(proj) {
+  const running = graphs.get(proj.id);
+  if (running?.running) return running;
+
+  const job = { running: true, startedAt: Date.now(), endedAt: 0, error: null };
+  graphs.set(proj.id, job);
+
+  G.build(proj.path)
+    .catch((e) => { job.error = String(e.message || e).slice(0, 300); })
+    .finally(() => { job.running = false; job.endedAt = Date.now(); });
+
+  return job;
+}
+
 /* ------------------------------------------------------------------- état */
 
 // Ce que le client voit d'une étape. `depth` et `parentId` portent la hiérarchie :
@@ -165,6 +187,9 @@ async function buildState() {
       stats: M.stats(list),
       mainStats: M.stats(mains),
       gen: gens.get(p.id) || null,
+      // Relu du GRAPH_REPORT.md du dépôt à chaque tour : l'app n'a pas de copie de
+      // cet état, et un graphe construit à la main hors de Pyramis se voit donc aussi.
+      graph: exists ? { ...G.state(p.path), job: graphs.get(p.id) || null } : null,
       // `here` = ce que la barre latérale affiche sous le projet : les panneaux de
       // Pyramis d'abord, puis les sessions ouvertes ailleurs sur la machine.
       sessions: agents.list
@@ -178,6 +203,9 @@ async function buildState() {
     projects: out,
     orphanSessions: agents.list.filter((a) => !ownerOf(a.cwd || "")),
     agentsError: agents.error,
+    // L'interface doit pouvoir dire « installe-le » plutôt que d'échouer en silence
+    // sur chaque projet ajouté.
+    graphify: G.available(),
     liveCount: agents.list.length,
     now: Date.now(),
   };
@@ -246,6 +274,11 @@ const server = http.createServer(async (req, res) => {
       if (projects.some((x) => x.path === target)) return json(res, 409, { error: "project already tracked" });
       const proj = { id: crypto.randomBytes(4).toString("hex"), name: (b.name || path.basename(target)).slice(0, 60), emoji: (b.emoji || "📁").slice(0, 8), path: target, order: projects.length };
       projects.push(proj); saveRegistry(projects);
+      // Un projet qu'on commence à suivre repart avec son graphe. C'est le seul geste
+      // automatique de l'app, et il est gratuit (`--code-only`, extraction locale) —
+      // sans quoi il faudrait le proposer, et personne ne cliquerait. `b.graph:false`
+      // laisse la porte de sortie à un appel qui n'en veut pas.
+      if (b.graph !== false && G.available()) startGraph(proj);
       return json(res, 200, proj);
     }
 
@@ -284,6 +317,21 @@ const server = http.createServer(async (req, res) => {
       // désormais doublon, avec le risque qu'on l'édite en croyant agir sur l'app.
       if (r.legacy && fs.existsSync(r.legacy)) fs.rmSync(r.legacy);
       return json(res, 200, { ok: true, items: M.items(merged).map(pick) });
+    }
+
+    // (Re)construire le graphe d'un projet. Manuel ici : les projets déjà suivis
+    // n'en ont pas reçu d'office, et un graphe périmé se rafraîchit d'un clic.
+    // Réponse immédiate, l'état se lit ensuite dans /api/state, comme la génération.
+    const grMatch = /^\/api\/projects\/([a-f0-9]+)\/graph$/.exec(p);
+    if (grMatch && req.method === "POST") {
+      const proj = byId(grMatch[1]);
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
+      if (!G.available()) return json(res, 400, { error: "graphify not installed — run: uv tool install graphifyy" });
+      const job = graphs.get(proj.id);
+      if (job?.running) return json(res, 409, { error: "graph build already running" });
+      startGraph(proj);
+      return json(res, 202, { ok: true });
     }
 
     // Générer les étapes : le modèle lit le dépôt et propose des milestones, qui sont

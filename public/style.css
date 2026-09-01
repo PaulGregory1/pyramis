@@ -239,6 +239,20 @@ input.chip[type="date"] { width: 110px; }
 .gen { margin-top: 8px; font-size: 11.5px; color: var(--done); }
 .gen.err { color: var(--blocked); }
 
+/* --------------------------------------------------- graphe de connaissance */
+/* La ligne du graphe est une mesure, pas une alerte : encre atténuée, chiffres
+   tabulaires, aucune couleur tant que rien ne cloche. Un graphe périmé est le seul
+   cas qui mérite d'être vu de loin, et il emprunte l'ambre plutôt que le rouge des
+   milestones bloqués — un graphe en retard n'est pas un travail en échec. */
+.gnote {
+  margin-top: 8px; font-size: 11.5px; color: var(--dim);
+  font-variant-numeric: tabular-nums; display: flex; gap: .34em; align-items: baseline; flex-wrap: wrap;
+}
+.gnote .faint { color: var(--faint); }
+.gnote.stale { color: #9a6a12; }
+.btn.warn { color: #9a6a12; border-color: #e6d3a8; }
+.btn.warn:hover { border-color: #cbab6a; }
+
 .newms {
   width: 100%; background: none; border: 1px dashed var(--line-2); color: var(--faint);
   font: inherit; font-size: 12.5px; padding: 9px 11px; border-radius: var(--r); cursor: pointer; text-align: left;
