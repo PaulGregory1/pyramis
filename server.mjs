@@ -24,10 +24,36 @@ const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
 const PORT = Number(process.env.PORT || 4331);
 const PUBLIC = path.join(__dir, "public");
-const REGISTRY = path.join(__dir, "projects.json");
+const REGISTRY = registryPath();
+
+// Le registre vit HORS du code. Deux raisons, dont une seule est négociable :
+// une app empaquetée est un bundle SIGNÉ, et y écrire invalide la signature —
+// sur Apple Silicon, l'app ne redémarre plus. L'autre est qu'un registre à côté
+// du dépôt suivrait un `git clean` ou une réinstallation.
+// Un seul chemin pour les deux façons de lancer (`npm start` et Pyramis.app) :
+// deux registres donneraient deux listes de projets sans que rien ne le dise.
+function registryPath() {
+  if (process.env.PYRAMIS_REGISTRY) return process.env.PYRAMIS_REGISTRY;
+  const dir = process.platform === "darwin"
+    ? path.join(HOME, "Library", "Application Support", "Pyramis")
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "pyramis");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, "projects.json");
+  // Reprise de l'ancien emplacement, une fois. On COPIE : l'original reste où il
+  // est, comme tout fichier de l'utilisateur, mais il n'est plus lu.
+  const legacy = path.join(__dir, "projects.json");
+  if (!fs.existsSync(file) && fs.existsSync(legacy)) {
+    fs.copyFileSync(legacy, file);
+    console.log(`registry: repris depuis ${legacy} — c'est désormais ${file} qui fait foi`);
+  }
+  return file;
+}
 const XTERM = path.join(__dir, "node_modules", "@xterm");
 
-const terminals = createTerminals();
+// Exporté pour la coquille Electron : c'est le seul objet du serveur qui survive à
+// la fermeture de la fenêtre, et donc le seul dont le ⌘Q doive s'occuper. Le
+// serveur, lui, s'arrête avec le process.
+export const terminals = createTerminals();
 
 /* ---------------------------------------------------------------- registre */
 

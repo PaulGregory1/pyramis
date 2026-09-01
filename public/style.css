@@ -64,6 +64,16 @@ img { display: block; }
    la réapprocher avec une graisse fine et de l'espacement donnerait un faux. */
 .brand .wordmark { height: 12px; width: auto; opacity: .92; }
 
+/* Dans l'app Mac, la fenêtre n'a pas de barre de titre : CETTE barre en tient
+   lieu. On lui réserve la place des trois boutons à gauche, et on la rend
+   déplaçable — sauf ce qui se clique, qui redeviendrait inerte sinon. La classe
+   vient de `?app=1`, jamais d'un reniflage d'Electron : la même adresse ouverte
+   dans un navigateur donne la même page, ce qui garde la capture headless juste. */
+body.in-app .bar { padding-left: 86px; -webkit-app-region: drag; }
+body.in-app .bar a,
+body.in-app .bar button,
+body.in-app .bar select { -webkit-app-region: no-drag; }
+
 .tabs { display: flex; gap: 2px; }
 .tab {
   background: none; border: 0; color: var(--dim); font: inherit; cursor: pointer;

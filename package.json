@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.js",
   "description": "Suivi des projets en parallèle : milestones dans les dépôts, N sessions Claude vivantes.",
   "scripts": {
     "start": "node server.mjs",
+    "app": "electron .",
+    "build": "./scripts/make-app.sh",
     "postinstall": "node scripts/fix-pty.mjs",
     "test": "node --test test/*.test.mjs"
   },
@@ -14,5 +17,8 @@
     "@xterm/xterm": "^6.0.0",
     "node-pty": "^1.1.0",
     "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "electron": "^44.1.0"
   }
 }

@@ -810,6 +810,9 @@ $("#cols").onchange = setCols;
 setCols();
 $("#add-project").onclick = () => { $("#browser").showModal(); browse(); };
 
+// Ouverte par l'app Mac (`?app=1`), la page porte sa propre barre de titre.
+if (new URLSearchParams(location.search).has("app")) document.body.classList.add("in-app");
+
 readHash();
 refresh();
 setInterval(refresh, 4000);

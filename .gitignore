@@ -1,4 +1,5 @@
 node_modules/
+build/
 projects.json
 *.tmp
 .DS_Store
