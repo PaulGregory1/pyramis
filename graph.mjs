@@ -18,6 +18,7 @@
 //    et le `graphify` de l'utilisateur continue de l'interroger sans nous.
 
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { execFile } from "node:child_process";
@@ -128,6 +129,51 @@ function readHead(dir) {
   const packed = fs.readFileSync(path.join(base, "packed-refs"), "utf8");
   const line = new RegExp(`^([0-9a-f]{40}) ${ref[1].trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m").exec(packed);
   return line ? line[1] : "";
+}
+
+/* ------------------------------------------------------------- la lecture */
+
+// Le graphe lui-même, mis en forme pour la visionneuse. `state()` lit le rapport
+// parce qu'elle tourne toutes les quatre secondes ; celle-ci lit le `graph.json`,
+// qui peut peser plusieurs mégaoctets — elle n'est donc appelée qu'au clic, jamais
+// dans la boucle de rafraîchissement.
+//
+// Au-delà de `limit` noeuds, on garde les plus connectés et on le DIT. Une force
+// dirigée sur cinq mille noeuds ne donne pas un dessin, elle donne un nuage : mieux
+// vaut trois cents noeuds qu'on peut lire et une phrase qui annonce la coupe.
+export async function read(dir, { limit = 450 } = {}) {
+  const raw = JSON.parse(await fsp.readFile(path.join(dir, OUT_DIR, GRAPH), "utf8"));
+
+  const links = (raw.links || [])
+    .map((l) => ({ s: l.source, t: l.target, rel: l.relation || "", origin: l.confidence || "" }))
+    .filter((l) => l.s && l.t && l.s !== l.t);
+
+  const deg = new Map();
+  for (const l of links) {
+    deg.set(l.s, (deg.get(l.s) || 0) + 1);
+    deg.set(l.t, (deg.get(l.t) || 0) + 1);
+  }
+
+  const all = (raw.nodes || []).map((n) => ({
+    id: n.id,
+    label: n.label || n.id,
+    file: n.source_file || "",
+    loc: n.source_location || "",
+    group: Number.isInteger(n.community) ? n.community : 0,
+    deg: deg.get(n.id) || 0,
+  }));
+
+  const nodes = all.length > limit ? [...all].sort((a, b) => b.deg - a.deg).slice(0, limit) : all;
+  const keep = new Set(nodes.map((n) => n.id));
+
+  return {
+    nodes,
+    links: links.filter((l) => keep.has(l.s) && keep.has(l.t)),
+    total: all.length,
+    totalLinks: links.length,
+    truncated: nodes.length < all.length,
+    commit: raw.built_at_commit || "",
+  };
 }
 
 /* --------------------------------------------------------------- l'exclusion */

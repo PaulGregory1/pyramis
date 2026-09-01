@@ -53,6 +53,32 @@
     </form>
   </dialog>
 
+  <!-- Les deux visionneuses du haut de page. Elles sont en LECTURE SEULE : le graphe
+       du code et l'arbre des commits donnent à voir ce que le dépôt contient déjà.
+       Chacune a une adresse (#p=<projet>&d=graph), pour qu'une capture headless
+       puisse les ouvrir sans clic. -->
+  <dialog id="graph" class="big">
+    <div class="dhead">
+      <h3 id="graph-title">Knowledge graph</h3>
+      <span class="dmeta" id="graph-meta"></span>
+      <span class="grow"></span>
+      <input id="graph-q" class="dsearch" type="search" placeholder="Find a symbol or a file…" autocomplete="off">
+      <button class="btn ghost" id="graph-fit">Fit</button>
+      <button class="btn ghost" id="graph-close">Close</button>
+    </div>
+    <div class="dbody" id="graph-body"></div>
+  </dialog>
+
+  <dialog id="git" class="big">
+    <div class="dhead">
+      <h3 id="git-title">Git tree</h3>
+      <span class="dmeta" id="git-meta"></span>
+      <span class="grow"></span>
+      <button class="btn ghost" id="git-close">Close</button>
+    </div>
+    <div class="dbody scroll" id="git-body"></div>
+  </dialog>
+
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
   <script src="/app.js"></script>

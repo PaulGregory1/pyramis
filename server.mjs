@@ -19,6 +19,7 @@ import * as M from "./milestones.mjs";
 import { createTerminals, claudeBin } from "./terminals.mjs";
 import { propose } from "./generate.mjs";
 import * as G from "./graph.mjs";
+import * as R from "./repo.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -360,6 +361,32 @@ const server = http.createServer(async (req, res) => {
       // désormais doublon, avec le risque qu'on l'édite en croyant agir sur l'app.
       if (r.legacy && fs.existsSync(r.legacy)) fs.rmSync(r.legacy);
       return json(res, 200, { ok: true, items: M.items(merged).map(pick) });
+    }
+
+    // Les trois lectures de la page d'un projet : son aperçu, son graphe, son histoire.
+    // Elles ne sont demandées qu'à l'ouverture du projet ou au clic sur un bouton —
+    // jamais dans la boucle des quatre secondes, qui doit rester à coût nul. C'est ce
+    // qui autorise un `git log` et un `graph.json` de plusieurs mégaoctets ici.
+    const pageMatch = /^\/api\/projects\/([a-f0-9]+)\/(preview|git|graph-data)$/.exec(p);
+    if (pageMatch && req.method === "GET") {
+      const proj = byId(pageMatch[1]);
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
+      const what = pageMatch[2];
+
+      if (what === "preview") return json(res, 200, await R.overview(proj.path));
+
+      if (what === "git") {
+        const limit = Math.min(600, Math.max(20, Number(url.searchParams.get("limit")) || 250));
+        return json(res, 200, await R.log(proj.path, { limit }));
+      }
+
+      // Le graphe n'existe pas tant que personne ne l'a construit : on le dit plutôt
+      // que de rendre un 500 sur un ENOENT que rien n'expliquerait dans l'interface.
+      const g = G.state(proj.path);
+      if (!g.built) return json(res, 404, { error: "no knowledge graph yet — build it first" });
+      const limit = Math.min(1200, Math.max(50, Number(url.searchParams.get("limit")) || 450));
+      return json(res, 200, { ...(await G.read(proj.path, { limit })), state: g });
     }
 
     // (Re)construire le graphe d'un projet. Manuel ici : les projets déjà suivis

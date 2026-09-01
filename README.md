@@ -7,9 +7,19 @@ lancer le travail sans changer de fenêtre.
 
 **Deux niveaux, et un seul visible de loin.** La vue d'ensemble ne montre que les
 MILESTONES — les résultats qu'on peut annoncer — et parmi eux ceux qui bougent ou
-coincent. Les petites étapes attendent qu'on ouvre le projet : elles sont dans la
-carte de leur milestone, avec leur compte (`2/5`). Faire remonter le détail de huit
+coincent. Les petites étapes attendent qu'on ouvre le projet : elles dorment dans le
+repli de leur milestone, avec leur compte (`2/5`). Faire remonter le détail de huit
 projets sur une même page reproduirait le problème qu'on cherche à régler.
+
+**La page d'un projet tient en deux étages.** En haut, ce que le dépôt EST : les
+premières lignes de son README, ses langages, sa branche, son dernier commit, ce qui
+n'est pas encore enregistré, et quatre mesures — milestones, étapes, sessions vivantes,
+taille du graphe. Deux boutons y ouvrent les vues en lecture seule : **le graphe du
+code** (quel symbole appelle quoi, communautés en couleur, recherche et voisinage au
+survol) et **l'arbre git** (les commits avec leurs branches côte à côte, les fusions
+en anneau). En bas, ce qu'il reste à faire : tous les milestones dans l'ordre du
+fichier, chacun dépliable sur sa note, ses étapes et son échéance. Ce qui bouge ou
+coince s'ouvre tout seul.
 
 **Des étapes qui vivent dans les dépôts.** Un `MILESTONES.md` à la racine de chaque
 projet, en markdown ordinaire. Une puce à la marge est un milestone, une puce indentée
@@ -108,6 +118,11 @@ ajoute les autres. Le registre est un `projects.json` éditable à la main.
 Pas de troisième niveau : un milestone, ses étapes, et c'est tout. Un fichier écrit à
 la main qui en compte davantage est relu sans erreur, mais les puces plus profondes
 remontent au niveau des étapes.
+
+Les deux visionneuses ne modifient rien : ni le graphe, ni l'histoire git ne
+s'éditent depuis Pyra. Le graphe ne se rafraîchit pas non plus tout seul — `◈` le
+reconstruit quand la ligne sous l'aperçu dit qu'il a pris du retard. Et au-delà de
+450 noeuds, seuls les plus connectés sont dessinés : le dire vaut mieux qu'un nuage.
 
 Pas de suivi de quota : l'app compte les sessions vivantes, pas les jetons. Lancer
 cinq sessions Opus en parallèle vide la fenêtre de 5 h beaucoup plus vite qu'on ne
