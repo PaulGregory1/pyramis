@@ -1,4 +1,4 @@
-<!-- graph-baseline: 2ed0d6e -->
+<!-- graph-baseline: bdff781 -->
 # Pyramis — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
