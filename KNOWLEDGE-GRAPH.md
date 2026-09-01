@@ -1,4 +1,4 @@
-<!-- graph-baseline: 90d2557 -->
+<!-- graph-baseline: f9f2b08 -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -115,7 +115,8 @@ pour remplir la même largeur.
 | `milestones.mjs` | Analyse et réécriture de `MILESTONES.md`. Aucune dépendance au reste. |
 | `generate.mjs` | L'appel au modèle : un `claude -p` en lecture seule dans le dépôt. |
 | `prompts/milestones.md` | Le prompt de génération. Relu à chaque appel, donc modifiable à chaud. |
-| `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur. |
+| `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur, lecture pour la visionneuse. |
+| `repo.mjs` | Ce que le dépôt dit de lui-même : README, langages, branche, et l'histoire git mise en voies. Aucune dépendance au reste. |
 | `terminals.mjs` | Les pseudo-terminaux. Un `claude` ou un shell réel par panneau. |
 | `public/app.js` | Toute l'UI. Pas de framework, pas d'étape de build. |
 | `electron/main.js` | La coquille Mac : une fenêtre, un menu, un ⌘Q. Importe `server.mjs`, ne décide rien. |
@@ -124,6 +125,75 @@ pour remplir la même largeur.
 | `scripts/fix-pty.mjs` | Remet `+x` sur le `spawn-helper` de node-pty après chaque `npm install`. |
 | `scripts/brand.mjs` | Regénère mot-symbole et pyramide depuis les deux originaux. |
 | `public/brand/` | Les originaux (`logo-pyr.png`, `brand-pyr.png`) et leurs déclinaisons. |
+
+## La page d'un projet : deux étages, et pourquoi
+
+En haut, ce que le dépôt EST. En bas, ce qu'il reste à en faire. La séparation n'est
+pas décorative : le premier étage se lit une fois — on l'ouvre pour se remettre en
+tête de quoi parle ce projet — et le second se travaille. Les mélanger redonnait la
+page où l'on cherche l'information au milieu des commandes.
+
+**L'étage du haut ne coûte rien à la boucle des quatre secondes.** `/api/state` tourne
+toutes les 4 s pour six projets : y ajouter un `git log`, un `git status` et une lecture
+de README, ce serait vingt-quatre sous-processus par tour pour des faits qui bougent
+une fois par heure. D'où trois routes séparées (`/preview`, `/git`, `/graph-data`),
+demandées à l'ouverture d'un projet ou au clic, et un cache d'une minute côté client
+(`previews` dans `app.js`). La tentative est notée AVANT le départ de la requête :
+sans ça, un dossier qui répond en erreur relancerait un appel à chaque rendu.
+
+**Les quatre colonnes ont laissé la place à une liste.** Un tableau rangé par statut
+perdait l'ORDRE DU FICHIER, qui est celui que l'utilisateur a écrit et le seul qui
+raconte une feuille de route. Le statut n'a pas disparu pour autant : il se lit à la
+pastille, se filtre au-dessus, et se change au clic (la pastille fait tourner, le
+sélecteur du repli désigne). C'est la seule chose que la vue projet a perdue, et elle
+est revenue sous une autre forme.
+
+**Le repli est un état d'interface qui survit au rechargement, et il ne va pas dans le
+fichier.** `localStorage` (`pyra.open`), jamais le `MILESTONES.md` : le fichier
+appartient au dépôt, l'état d'un pli n'y a rien à faire. Sans choix explicite, ce qui
+est en cours ou bloqué s'ouvre — c'est ce qu'on vient voir. Le registre des plis est
+borné à 400 entrées, sinon un milestone supprimé y laisserait sa clé pour toujours.
+
+## Les deux visionneuses
+
+Elles sont en **lecture seule**, toutes les deux, et c'est ce qui les rend sûres :
+regarder le graphe ou l'histoire ne peut rien casser dans le dépôt. Elles ont chacune
+une adresse (`#p=<projet>&d=graph`, `&d=git`), pour la même raison que les onglets —
+la capture headless obligatoire du `CLAUDE.md` doit pouvoir les ouvrir sans clic.
+
+**Le graphe se pose AVANT d'être montré.** `simulate()` fait tourner 200 à 320 tours
+de force dirigée sans rien afficher, puis peint et cadre une fois. Trois gains, et le
+troisième n'était pas prévu : on ne fait pas regarder une pelote qui se démêle pendant
+cinq secondes ; le cadrage a des positions définitives à cadrer ; et le résultat ne
+dépend plus du rythme des images — c'est ce qui a rendu la vérification headless
+possible, `requestAnimationFrame` étant à peine servi sous `--virtual-time-budget`.
+L'animation ne repart qu'au geste (traîner un noeud), et se referme d'elle-même.
+
+**Une répulsion en 1/d² doit être bornée.** Deux noeuds qui se superposent donnent une
+force gigantesque : le noeud part à des milliers de pixels et ne revient pas, le
+cadrage s'ajuste alors sur du vide et le dessin utile occupe un dixième de l'écran.
+`MAX_FORCE` et `MAX_STEP` sont là pour ça. Vu à l'écran avant d'être compris.
+
+**Le rappel au centre se desserre quand le graphe grossit** (`GRAVITY = 4 / n`) : à
+force égale, quatre cents noeuds s'écrasent en boule là où deux cents restent écartés,
+et les communautés cessent de se lire. Au-delà de 450 noeuds, seuls les plus connectés
+sont dessinés et l'en-tête le DIT — un nuage de cinq mille points n'est pas un dessin.
+
+**L'arbre git tient dans `lanes()`, et cette fonction est testée.** Un dessin de graphe
+git faux reste un dessin : rien à l'écran ne dit qu'une branche part du mauvais
+commit. D'où `test/repo.test.mjs`, sur les cas qui trompent les rendus naïfs — la
+fusion, la voie libérée puis reprise, et le parent hors fenêtre. Ce dernier est le
+piège : une histoire coupée à 250 commits a des parents qu'on n'a pas chargés, et les
+croire vivants dessine des traits qui descendent jusqu'au bas de l'écran sans jamais
+rencontrer leur commit. Une voie ne se déplace JAMAIS d'un rang à l'autre — c'est ce
+qui autorise le trait vertical pour ce qui passe et la courbe pour ce qui bifurque.
+
+**`origin/HEAD` n'est pas une branche.** C'est un alias vers celle par défaut : affiché,
+il double chaque étiquette du dépôt distant sans rien apprendre. Filtré à la lecture.
+
+**Un dossier suivi doit porter son PROPRE `.git`.** `repo.mjs` ne remonte pas aux
+parents : un sous-dossier inscrit comme projet afficherait sinon l'histoire du dépôt
+qui le contient, qui n'est pas la sienne. Même règle que dans `graph.mjs`.
 
 ## L'app Mac, et ce qu'elle change (ou pas)
 
@@ -355,6 +425,13 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
   projet suivi tournant en permanence n'a pas été jugé payant.
 - Les communautés du graphe ne sont pas nommées (« Community 0, 1, 2 »). Les nommer
   demanderait un appel au modèle, et c'est exactement ce que la construction s'interdit.
+- Les deux visionneuses ne modifient rien : on ne renomme pas une branche, on ne
+  reconstruit pas le graphe depuis le dessin. Le seul geste qu'elles offrent est la
+  copie d'un hash.
+- L'arbre git s'arrête à 250 commits et ne sait pas en charger davantage. Il ne montre
+  pas non plus les fichiers d'un commit : ce serait un client git, pas un aperçu.
+- Le graphe n'a pas de mise en page stable d'une ouverture à l'autre au-delà du départ
+  en spirale : deux dessins du même dépôt se ressemblent, ils ne sont pas identiques.
 - Retirer un projet du registre ne retire ni son `graphify-out/`, ni le bloc greffé
   dans son `CLAUDE.md`. C'est la règle « ne jamais supprimer un fichier de
   l'utilisateur », et le bloc est délimité précisément pour qu'il l'enlève lui-même.
@@ -377,6 +454,10 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer la façon de rejoindre une session | `server.mjs` (`POST /api/attach`), `public/app.js` (`joinSession`) |
 | Toucher à la hiérarchie milestone/étape | `milestones.mjs` (`link`, `insertionPoint`), `public/app.js` (`mains`, `kids`, `subRow`) |
 | Modifier la barre latérale | `public/app.js` (`renderSide`), `public/style.css` (`#side`, `.sessions`) |
+| Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
+| Toucher au repli d'un milestone | `public/app.js` (`isOpen`, `setOpen`, `msRow`), clé `pyra.open` du `localStorage` |
+| Retoucher la force dirigée du graphe | `public/app.js` (`simulate`, bloc des constantes), jamais sans recapture headless |
+| Changer le dessin des voies git | `repo.mjs` (`lanes`) puis `test/repo.test.mjs`, et `gitRow` pour le tracé |
 | Retoucher la direction artistique | `public/style.css` (bloc `:root`), `scripts/brand.mjs` pour les images |
 | Changer ce que Graphify extrait (docs, images, LLM) | `graph.mjs` (`build`), en pesant d'abord la règle « aucun appel au modèle » |
 | Retoucher le bloc greffé dans les `CLAUDE.md` | `graph.mjs` (`BLOCK`, `MARK_OPEN`), puis `test/graph.test.mjs` |
