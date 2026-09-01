@@ -1,5 +1,5 @@
 // Copyright © 2026 Paul Gregory. Tous droits réservés.
-// UI de Pyramis. Trois responsabilités : afficher l'avancement des projets, éditer
+// UI de Pyra. Trois responsabilités : afficher l'avancement des projets, éditer
 // les étapes (qui partent dans le MILESTONES.md du dépôt), et tenir N terminaux vivants.
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -716,7 +716,7 @@ function layout() {
 }
 
 function setCols() {
-  localStorage.setItem("pyramis.cols", $("#cols").value);
+  localStorage.setItem("pyra.cols", $("#cols").value);
   layout();
 }
 
@@ -805,7 +805,7 @@ function writeHash() {
 $$(".tab").forEach((b) => (b.onclick = () => { showView(b.dataset.view); writeHash(); }));
 $(".proj.all").onclick = () => { state.selected = ""; writeHash(); render(); };
 addEventListener("hashchange", () => { readHash(); render(); });
-$("#cols").value = localStorage.getItem("pyramis.cols") || "2";
+$("#cols").value = localStorage.getItem("pyra.cols") || "2";
 $("#cols").onchange = setCols;
 setCols();
 $("#add-project").onclick = () => { $("#browser").showModal(); browse(); };

@@ -1,5 +1,5 @@
 // Copyright © 2026 Paul Gregory. Tous droits réservés.
-// Pyramis en application Mac : sa fenêtre, son icône dans le Dock, sa barre de
+// Pyra en application Mac : sa fenêtre, son icône dans le Dock, sa barre de
 // menus, son ⌘Q. Rien d'autre. Le serveur tourne DANS ce process (voir boot) —
 // un seul objet à lancer, un seul à quitter, donc pas de serveur orphelin ni de
 // `claude` qui survive à la fermeture.
@@ -33,7 +33,7 @@ let owned = null; // le module server.mjs, seulement si c'est nous qui l'avons d
 // trouver son binaire — c'est donc CELUI-CI qu'il faut réparer, et avant tout
 // import du serveur.
 function richPath() {
-  const extra = ["/opt/homebrew/bin", "/usr/local/bin", path.join(os.homedir(), ".local/bin"), "/usr/bin", "/bin"];
+  const extra = [path.join(os.homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
   const have = (process.env.PATH || "").split(":").filter(Boolean);
   return [...have, ...extra.filter((p) => !have.includes(p) && fs.existsSync(p))].join(":");
 }
@@ -42,15 +42,15 @@ function richPath() {
 
 // Ouverte par le Finder, l'app n'a pas de sortie standard : chaque console.log
 // part dans le vide, y compris la trace de l'erreur qu'on cherche. On recopie
-// les deux flux dans ~/Library/Logs/Pyramis. Écriture synchrone, délibérément :
+// les deux flux dans ~/Library/Logs/Pyra. Écriture synchrone, délibérément :
 // un journal tamponné perd exactement les lignes qui précèdent un plantage.
 function startLogging() {
   const dir = app.getPath("logs");
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, "pyramis.log");
+  const file = path.join(dir, "pyra.log");
   try { if (fs.statSync(file).size > 2e6) fs.renameSync(file, `${file}.1`); } catch { /* premier lancement */ }
   const fd = fs.openSync(file, "a");
-  fs.writeSync(fd, `\n=== ${new Date().toISOString()} — Pyramis ${app.getVersion()} ===\n`);
+  fs.writeSync(fd, `\n=== ${new Date().toISOString()} — Pyra ${app.getVersion()} ===\n`);
   for (const name of ["stdout", "stderr"]) {
     const stream = process[name];
     const write = stream.isTTY ? stream.write.bind(stream) : null;
@@ -146,7 +146,7 @@ function buildMenu() {
 
 // Deux verrous, deux rôles. Le port empêche deux serveurs ; celui d'Electron
 // empêche deux fenêtres — la seconde ouverture remet la première au premier plan.
-app.setName(app.isPackaged ? "Pyramis" : "Pyramis Dev");
+app.setName(app.isPackaged ? "Pyra" : "Pyra Dev");
 if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on("second-instance", () => {
   if (!win) return createWindow();
@@ -173,7 +173,7 @@ app.whenReady().then(async () => {
   try {
     await boot();
   } catch (e) {
-    dialog.showErrorBox("Pyramis n'a pas démarré", `${e.message}\n\nJournal : ${log}`);
+    dialog.showErrorBox("Pyra n'a pas démarré", `${e.message}\n\nJournal : ${log}`);
     return app.exit(1);
   }
   createWindow();

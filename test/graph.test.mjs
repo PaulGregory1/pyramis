@@ -104,10 +104,22 @@ test("le pointeur est idempotent", () => {
   assert.equal(fs.readFileSync(path.join(dir, "CLAUDE.md"), "utf8"), once);
 });
 
+// L'app s'appelait Pyramis. Un dépôt suivi depuis cette époque porte le bloc sous
+// l'ancien marqueur : le reconnaître est la seule chose qui empêche d'en greffer un
+// second au nom d'après, dans un fichier qui appartient à l'utilisateur.
+test("le pointeur reconnaît le marqueur de l'ancien nom", () => {
+  const { dir } = repo();
+  const file = path.join(dir, "CLAUDE.md");
+  const before = "# Projet\n\n<!-- pyramis:graphify -->\n## Knowledge graph\n<!-- /pyramis:graphify -->\n";
+  fs.writeFileSync(file, before);
+  assert.equal(pointer(dir), false, "le bloc est déjà là, sous son ancien nom");
+  assert.equal(fs.readFileSync(file, "utf8"), before);
+});
+
 test("le pointeur crée le CLAUDE.md s'il n'existe pas", () => {
   const { dir } = repo();
   assert.equal(pointer(dir), true);
-  assert.match(fs.readFileSync(path.join(dir, "CLAUDE.md"), "utf8"), /^<!-- pyramis:graphify -->/);
+  assert.match(fs.readFileSync(path.join(dir, "CLAUDE.md"), "utf8"), /^<!-- pyra:graphify -->/);
 });
 
 // Le bloc est délimité précisément pour que l'utilisateur puisse le retirer d'un
@@ -116,6 +128,6 @@ test("le bloc porte ses deux marqueurs", () => {
   const { dir } = repo();
   pointer(dir);
   const text = fs.readFileSync(path.join(dir, "CLAUDE.md"), "utf8");
-  assert.match(text, /<!-- pyramis:graphify -->/);
-  assert.match(text, /<!-- \/pyramis:graphify -->/);
+  assert.match(text, /<!-- pyra:graphify -->/);
+  assert.match(text, /<!-- \/pyra:graphify -->/);
 });

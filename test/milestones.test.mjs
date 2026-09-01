@@ -121,7 +121,7 @@ test("l'ancien nom est relu, mais l'écriture repart vers le nouveau", () => {
   // tout en ayant analysé l'ANCIEN. Si les deux constantes se croisaient un jour,
   // la suppression emporterait le fichier qu'on vient d'écrire.
   assert.notEqual(FILENAME, LEGACY_FILENAME);
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pyramis-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pyra-"));
   try {
     fs.writeFileSync(path.join(dir, LEGACY_FILENAME), "# Ancien\n\n- [x] Déjà fait\n");
     const r = read(dir, "X");

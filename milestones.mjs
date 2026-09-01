@@ -1,6 +1,6 @@
 // Copyright © 2026 Paul Gregory. Tous droits réservés.
 // Lecture/écriture de MILESTONES.md. Le fichier vit DANS le dépôt du projet, pas dans
-// une base de l'app : c'est ce qui rend Pyramis jetable. Si l'app disparaît, les
+// une base de l'app : c'est ce qui rend Pyra jetable. Si l'app disparaît, les
 // étapes restent lisibles — et Claude, lancé dans le projet, les lit déjà.
 //
 // Grammaire d'une ligne d'étape :

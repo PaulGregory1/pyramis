@@ -23,8 +23,11 @@ crop = b.crop((max(0, min(xs) - pad), max(0, min(ys) - pad),
                min(w, max(xs) + pad + 1), min(h, max(ys) + pad + 1)))
 ink = Image.new("RGBA", crop.size, (0, 8, 35, 255))
 ink.putalpha(crop.convert("L").point(lambda v: 255 - v))
-tw = 760
-ink.resize((tw, round(ink.height * tw / ink.width)), Image.LANCZOS).save("public/brand/wordmark.png")
+# La hauteur est la mesure, pas la largeur : la feuille de style pose
+# .wordmark { height: 12px }, donc c'est elle qui fixe la taille des lettres à
+# l'écran. Un mot plus court rendu à largeur constante grossirait d'autant.
+th = 85
+ink.resize((round(ink.width * th / ink.height), th), Image.LANCZOS).save("public/brand/wordmark.png")
 
 # La pyramide : rognée au contenu, centrée, en trois tailles.
 l = Image.open("public/brand/logo-pyr.png").convert("RGBA")

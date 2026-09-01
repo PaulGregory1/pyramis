@@ -11,6 +11,6 @@ if (fs.existsSync(root)) {
     const helper = path.join(root, dir, "spawn-helper");
     if (!fs.existsSync(helper)) continue;
     fs.chmodSync(helper, 0o755);
-    console.log("pyramis: +x", path.relative(process.cwd(), helper));
+    console.log("pyra: +x", path.relative(process.cwd(), helper));
   }
 }

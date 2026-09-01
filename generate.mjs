@@ -3,7 +3,7 @@
 // le dépôt et renvoie une proposition de milestones. Rien d'autre ne sort d'ici — c'est
 // `milestones.mjs` qui greffe la proposition sur le fichier, et lui seul qui écrit.
 //
-// Le provider est le même que partout ailleurs dans Pyramis : le `claude` du PATH.
+// Le provider est le même que partout ailleurs dans Pyra : le `claude` du PATH.
 // Pas de clé d'API à gérer, pas de second abonnement, et le modèle voit le projet
 // avec les mêmes yeux que les terminaux de l'app.
 //
@@ -118,7 +118,7 @@ function parseResult(text) {
   return list;
 }
 
-export async function propose({ project, items, model = process.env.PYRAMIS_MODEL || "" }) {
+export async function propose({ project, items, model = process.env.PYRA_MODEL || "" }) {
   const prompt = await buildPrompt(project, items);
   const args = [
     "-p", prompt,

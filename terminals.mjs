@@ -20,7 +20,7 @@ const pty = require("node-pty");
 // la mémoire quand un build bavard tourne pendant une heure.
 const SCROLLBACK = 256 * 1024;
 
-// Si Pyramis est lui-même démarré depuis une session Claude, l'environnement porte
+// Si Pyra est lui-même démarré depuis une session Claude, l'environnement porte
 // des marqueurs d'imbrication (CLAUDE_CODE_CHILD_SESSION & co). Un `claude` qui en
 // hérite se croit sous-session : transcript désactivé, donc plus de /resume, et
 // l'effort du parent imposé en douce. Les terminaux d'ici sont des sessions de
@@ -39,17 +39,35 @@ function cleanEnv() {
   return env;
 }
 
-// L'environnement de tout `claude` lancé par Pyramis — les panneaux d'ici comme la
+// L'environnement de tout `claude` lancé par Pyra — les panneaux d'ici comme la
 // génération d'étapes en arrière-plan. Les deux ont les mêmes besoins : ne pas
 // hériter des marqueurs d'imbrication, et retrouver le binaire dans le PATH.
-export const childEnv = () => ({ ...cleanEnv(), PATH: richPath(), PYRAMIS: "1" });
+export const childEnv = () => ({ ...cleanEnv(), PATH: richPath(), PYRA: "1" });
 
 // Lancée depuis le Finder, une app n'hérite pas du PATH du shell : `claude` et
 // `node` deviennent introuvables et le pty meurt à la seconde. On complète.
+//
+// L'ORDRE compte. `~/.local/bin` est l'installateur natif de Claude Code, celui qui
+// se met à jour tout seul ; `/opt/homebrew/bin` peut abriter un vieux paquet npm figé
+// depuis des mois. Le mettre en premier, c'est parler à un binaire d'il y a six
+// versions et voir `unknown option '--json'` remonter dans l'interface.
 function richPath() {
-  const extra = ["/opt/homebrew/bin", "/usr/local/bin", path.join(os.homedir(), ".local/bin")];
+  const extra = [path.join(os.homedir(), ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin"];
   const have = (process.env.PATH || "").split(":");
   return [...have, ...extra.filter((p) => !have.includes(p) && fs.existsSync(p))].join(":");
+}
+
+// Le chemin complet du `claude` à appeler, plutôt que le nom nu. Un `execFile("claude")`
+// suit le PATH du serveur, qui n'est pas celui qu'on vient de composer : lancé par le
+// Finder il tombe sur le premier binaire de `/opt/homebrew/bin`, quel que soit son âge.
+// On résout donc nous-mêmes, dans l'ordre de richPath, et on retombe sur le nom nu si
+// aucun candidat n'existe — c'est au moins un message d'erreur lisible.
+export function claudeBin() {
+  for (const dir of richPath().split(":")) {
+    const cand = path.join(dir, "claude");
+    try { if (fs.existsSync(cand)) return cand; } catch {}
+  }
+  return "claude";
 }
 
 export function createTerminals() {

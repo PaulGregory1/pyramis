@@ -14,7 +14,7 @@
 //
 // 2. **Rien n'est stocké par l'app.** Le graphe vit dans `graphify-out/` à la racine
 //    du dépôt, exactement comme le `MILESTONES.md`. L'état qu'affiche l'interface est
-//    relu du `GRAPH_REPORT.md` à chaque fois. Si Pyramis disparaît, le graphe reste,
+//    relu du `GRAPH_REPORT.md` à chaque fois. Si Pyra disparaît, le graphe reste,
 //    et le `graphify` de l'utilisateur continue de l'interroger sans nous.
 
 import fs from "node:fs";
@@ -159,8 +159,11 @@ export function exclude(dir) {
 //   — il est idempotent : présent, on le laisse tel quel, on ne le réécrit pas ;
 //   — on n'enlève JAMAIS rien. Le CLAUDE.md appartient à l'utilisateur, et c'est la
 //     même règle que pour son MILESTONES.md. On ajoute en fin de fichier, un point.
-const MARK_OPEN = "<!-- pyramis:graphify -->";
-const MARK_CLOSE = "<!-- /pyramis:graphify -->";
+const MARK_OPEN = "<!-- pyra:graphify -->";
+const MARK_CLOSE = "<!-- /pyra:graphify -->";
+// Le marqueur portait l'ancien nom de l'app. On le reconnaît encore, sinon un
+// dépôt qui a déjà le bloc s'en verrait greffer un second au nom d'après.
+const MARK_WAS = "<!-- pyramis:graphify -->";
 
 const BLOCK = `${MARK_OPEN}
 ## Knowledge graph
@@ -181,7 +184,7 @@ export function pointer(dir) {
   const file = path.join(dir, "CLAUDE.md");
   try {
     const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-    if (text.includes(MARK_OPEN)) return false;
+    if (text.includes(MARK_OPEN) || text.includes(MARK_WAS)) return false;
     fs.writeFileSync(file, text ? `${text.replace(/\n*$/, "")}\n\n${BLOCK}\n` : `${BLOCK}\n`, "utf8");
     return true;
   } catch {
@@ -196,7 +199,7 @@ export function pointer(dir) {
 // garde la construction gratuite — sans lui, Graphify appellerait un LLM pour
 // nommer ses communautés. Elles restent donc « Community N », et c'est le prix
 // assumé de la règle n° 1. `--no-viz` épargne un graph.html de plusieurs mégaoctets
-// que personne n'ouvre depuis Pyramis.
+// que personne n'ouvre depuis Pyra.
 export async function build(dir, { signal } = {}) {
   const exe = bin();
   if (!exe) throw new Error("graphify not found — install it with: uv tool install graphifyy");

@@ -16,7 +16,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import * as M from "./milestones.mjs";
-import { createTerminals } from "./terminals.mjs";
+import { createTerminals, claudeBin } from "./terminals.mjs";
 import { propose } from "./generate.mjs";
 import * as G from "./graph.mjs";
 
@@ -30,19 +30,26 @@ const REGISTRY = registryPath();
 // une app empaquetée est un bundle SIGNÉ, et y écrire invalide la signature —
 // sur Apple Silicon, l'app ne redémarre plus. L'autre est qu'un registre à côté
 // du dépôt suivrait un `git clean` ou une réinstallation.
-// Un seul chemin pour les deux façons de lancer (`npm start` et Pyramis.app) :
+// Un seul chemin pour les deux façons de lancer (`npm start` et Pyra.app) :
 // deux registres donneraient deux listes de projets sans que rien ne le dise.
 function registryPath() {
-  if (process.env.PYRAMIS_REGISTRY) return process.env.PYRAMIS_REGISTRY;
+  if (process.env.PYRA_REGISTRY) return process.env.PYRA_REGISTRY;
   const dir = process.platform === "darwin"
-    ? path.join(HOME, "Library", "Application Support", "Pyramis")
-    : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "pyramis");
+    ? path.join(HOME, "Library", "Application Support", "Pyra")
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "pyra");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "projects.json");
-  // Reprise de l'ancien emplacement, une fois. On COPIE : l'original reste où il
-  // est, comme tout fichier de l'utilisateur, mais il n'est plus lu.
-  const legacy = path.join(__dir, "projects.json");
-  if (!fs.existsSync(file) && fs.existsSync(legacy)) {
+  // Reprise d'un ancien emplacement, une fois. On COPIE : l'original reste où il
+  // est, comme tout fichier de l'utilisateur, mais il n'est plus lu. Le dossier
+  // « Pyramis » passe en premier — c'est le nom d'avant, et le plus récent des
+  // deux ; sans cette reprise, le changement de nom viderait la liste de projets.
+  const legacy = [
+    process.platform === "darwin"
+      ? path.join(HOME, "Library", "Application Support", "Pyramis", "projects.json")
+      : path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, ".config"), "pyramis", "projects.json"),
+    path.join(__dir, "projects.json"),
+  ].find((p) => fs.existsSync(p));
+  if (!fs.existsSync(file) && legacy) {
     fs.copyFileSync(legacy, file);
     console.log(`registry: repris depuis ${legacy} — c'est désormais ${file} qui fait foi`);
   }
@@ -97,11 +104,21 @@ const byId = (id) => projects.find((p) => p.id === id);
 let agentsCache = { at: 0, list: [], error: null };
 const AGENTS_TTL = 3000;
 
+// Trois pannes différentes, trois phrases différentes. « unknown option » ne veut pas
+// dire que l'option n'existe pas : elle veut dire qu'on parle à un binaire trop vieux,
+// et c'est ça qu'il faut lire dans l'interface — sinon on cherche le bug dans Pyra.
+function agentsError(err, stderr) {
+  if (err.code === "ENOENT") return "claude introuvable dans le PATH";
+  if (/unknown option/.test(String(stderr || "") + String(err.message || "")))
+    return `claude trop ancien (${claudeBin()}) — mettre à jour`;
+  return String(err.message || err);
+}
+
 function readAgents() {
   if (Date.now() - agentsCache.at < AGENTS_TTL) return Promise.resolve(agentsCache);
   return new Promise((resolve) => {
-    execFile("claude", ["agents", "--json"], { timeout: 8000, maxBuffer: 4 << 20 }, (err, stdout) => {
-      if (err) agentsCache = { at: Date.now(), list: agentsCache.list, error: err.code === "ENOENT" ? "claude not found in PATH" : String(err.message || err) };
+    execFile(claudeBin(), ["agents", "--json"], { timeout: 8000, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+      if (err) agentsCache = { at: Date.now(), list: agentsCache.list, error: agentsError(err, stderr) };
       else {
         try { agentsCache = { at: Date.now(), list: JSON.parse(stdout), error: null }; }
         catch (e) { agentsCache = { at: Date.now(), list: [], error: "unreadable JSON output" }; }
@@ -214,10 +231,10 @@ async function buildState() {
       mainStats: M.stats(mains),
       gen: gens.get(p.id) || null,
       // Relu du GRAPH_REPORT.md du dépôt à chaque tour : l'app n'a pas de copie de
-      // cet état, et un graphe construit à la main hors de Pyramis se voit donc aussi.
+      // cet état, et un graphe construit à la main hors de Pyra se voit donc aussi.
       graph: exists ? { ...G.state(p.path), job: graphs.get(p.id) || null } : null,
       // `here` = ce que la barre latérale affiche sous le projet : les panneaux de
-      // Pyramis d'abord, puis les sessions ouvertes ailleurs sur la machine.
+      // Pyra d'abord, puis les sessions ouvertes ailleurs sur la machine.
       sessions: agents.list
         .filter((a) => ownerOf(a.cwd || "") === p && !ownPids.has(a.pid))
         .map((a) => ({ ...a, external: true })),
@@ -443,7 +460,7 @@ server.on("upgrade", (req, socket, head) => {
 /* ------------------------------------------------------------------- boot */
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Pyramis — http://127.0.0.1:${PORT}`);
+  console.log(`Pyra — http://127.0.0.1:${PORT}`);
   console.log(`${projects.length} projects tracked · registry: ${REGISTRY}`);
 });
 

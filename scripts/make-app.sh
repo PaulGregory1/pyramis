@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fabrique build/Pyramis.app — Pyramis en vraie application macOS : sa fenêtre,
+# Fabrique build/Pyra.app — Pyra en vraie application macOS : sa fenêtre,
 # son icône, sa barre de menus, son entrée dans le Dock et dans Spotlight.
 #
 # Aucun packager. Un bundle Electron EST le runtime de node_modules avec le code
@@ -12,15 +12,15 @@
 #   · retoucher un bundle annule la signature qu'il portait, et sur Apple Silicon
 #     une signature invalide est fatale — d'où la re-signature ad hoc à la fin.
 #
-#   ./scripts/make-app.sh            → build/Pyramis.app
+#   ./scripts/make-app.sh            → build/Pyra.app
 #   ./scripts/make-app.sh --install  → et le copie dans /Applications
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$REPO/build/Pyramis.app"
+APP="$REPO/build/Pyra.app"
 DIST="$REPO/node_modules/electron/dist/Electron.app"
-NAME="Pyramis"
-ID="com.paulgregory.pyramis"
+NAME="Pyra"
+ID="com.paulgregory.pyra"
 VERSION="$(node -p "require('$REPO/package.json').version")"
 
 case "$(node -p 'process.arch')" in
@@ -84,9 +84,9 @@ plist "$PL" NSHumanReadableCopyright "Copyright © 2026 Paul Gregory. Tous droit
 #
 # Les trois dossiers sont ceux où un dépôt suivi peut vivre ; le registre, lui, borne
 # déjà la navigation au dossier personnel (route /api/browse).
-plist "$PL" NSDocumentsFolderUsageDescription "Pyramis lit et met à jour le MILESTONES.md des projets que vous suivez."
-plist "$PL" NSDesktopFolderUsageDescription "Pyramis lit et met à jour le MILESTONES.md des projets que vous suivez."
-plist "$PL" NSDownloadsFolderUsageDescription "Pyramis lit et met à jour le MILESTONES.md des projets que vous suivez."
+plist "$PL" NSDocumentsFolderUsageDescription "Pyra lit et met à jour le MILESTONES.md des projets que vous suivez."
+plist "$PL" NSDesktopFolderUsageDescription "Pyra lit et met à jour le MILESTONES.md des projets que vous suivez."
+plist "$PL" NSDownloadsFolderUsageDescription "Pyra lit et met à jour le MILESTONES.md des projets que vous suivez."
 
 for SUFFIX in "" " (GPU)" " (Plugin)" " (Renderer)"; do
   SRC="$APP/Contents/Frameworks/Electron Helper$SUFFIX.app"
@@ -110,7 +110,7 @@ mkdir -p "$DEST"
 cp "$REPO/package.json" "$REPO/server.mjs" "$REPO/milestones.mjs" "$REPO/terminals.mjs" \
    "$REPO/generate.mjs" "$REPO/graph.mjs" "$DEST/"
 cp -R "$REPO/electron" "$REPO/public" "$REPO/prompts" "$DEST/"
-# Pas de projects.json : le registre vit dans ~/Library/Application Support/Pyramis
+# Pas de projects.json : le registre vit dans ~/Library/Application Support/Pyra
 # (cf. registryPath dans server.mjs). Un registre embarqué serait écrit à chaque
 # ajout de projet — donc dans un bundle signé, donc une app qui ne redémarre plus.
 
@@ -147,7 +147,13 @@ touch "$APP" # le Finder garde les icônes en cache ; un touch le pousse à reli
 echo "app       : $APP  ($(du -sh "$APP" | cut -f1), $ARCH)"
 
 if [ "${1:-}" = "--install" ]; then
-  rm -rf "/Applications/Pyramis.app"
-  cp -R "$APP" "/Applications/Pyramis.app"
-  echo "installé  : /Applications/Pyramis.app"
+  rm -rf "/Applications/Pyra.app"
+  cp -R "$APP" "/Applications/Pyra.app"
+  echo "installé  : /Applications/Pyra.app"
+  # L'app d'avant le changement de nom porte un autre identifiant de bundle : elle
+  # reste où elle est, et ferait une seconde icône dans le Dock. On ne la jette pas
+  # à la place de l'utilisateur — on le lui dit, il tranche.
+  if [ -d "/Applications/Pyramis.app" ]; then
+    echo "à jeter   : /Applications/Pyramis.app — l'app d'avant le changement de nom"
+  fi
 fi

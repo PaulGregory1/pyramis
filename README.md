@@ -1,4 +1,4 @@
-# Pyramis
+# Pyra
 
 Le tableau de bord des projets menés en parallèle : où en est chacun, et de quoi
 lancer le travail sans changer de fenêtre.
@@ -40,7 +40,7 @@ tokens par question sur un dépôt de cette taille, davantage sur les gros.
 
 La construction est **locale et gratuite** : extraction AST par tree-sitter, aucune clé
 d'API, aucun token, quelques secondes. Graphify sait aussi faire lire les docs et les
-images par un LLM ; Pyramis ne s'en sert pas, précisément pour que le geste puisse être
+images par un LLM ; Pyra ne s'en sert pas, précisément pour que le geste puisse être
 automatique sans jamais rien coûter. Le graphe est exclu du dépôt par
 `.git/info/exclude`, jamais par le `.gitignore` — celui-là t'appartient. Le bouton
 `◈ Build graph` sert aux projets déjà suivis et aux graphes que le dépôt a dépassés ;
@@ -49,7 +49,7 @@ la ligne sous le titre dit de quel commit le graphe a été tiré.
 **Toutes les sessions d'un projet, sous son nom.** La barre latérale liste sous
 chaque projet les sessions Claude qui lui appartiennent — celles ouvertes ici, et
 celles lancées ailleurs sur la machine, marquées « elsewhere ». Un clic y va :
-sur un panneau de Pyramis, il le met en avant ; sur une session d'ailleurs, il en
+sur un panneau de Pyra, il le met en avant ; sur une session d'ailleurs, il en
 reprend le fil dans une branche, la session d'origine continuant intacte de son
 côté. Le bouton **All projects**, en haut, ramène à la vue d'ensemble.
 
@@ -77,7 +77,7 @@ sont. Une carte qui change de langue en cours de route est illisible.
 Comme une app du Mac :
 
     npm install
-    ./scripts/make-app.sh --install     # → /Applications/Pyramis.app
+    ./scripts/make-app.sh --install     # → /Applications/Pyra.app
 
 Elle a sa fenêtre, son icône dans le Dock, sa barre de menus et son ⌘Q ; on l'ouvre
 depuis Spotlight ou le Launchpad comme n'importe quelle autre. Le serveur tourne
@@ -85,7 +85,7 @@ DANS l'app : il n'y a qu'une chose à lancer, et qu'une chose à quitter — fer
 l'app arrête les `claude` de ses panneaux au lieu de les laisser orphelins.
 
 **Au tout premier lancement, macOS demande l'accès au dossier Documents.** Il faut
-accepter : sans cette autorisation, Pyramis ne peut pas lire le `MILESTONES.md` des
+accepter : sans cette autorisation, Pyra ne peut pas lire le `MILESTONES.md` des
 projets qui y vivent. Si l'écran est verrouillé, la demande ne peut pas s'afficher et
 l'app attend — déverrouiller suffit à la débloquer.
 
@@ -95,7 +95,7 @@ Ou dans le navigateur, ce qui reste vrai :
 
 Les deux façons partagent le même serveur : ouvrir l'app quand `npm start` tourne
 déjà REPREND ce serveur au lieu d'en lancer un second. Et le même registre, qui vit
-dans `~/Library/Application Support/Pyramis/projects.json` — hors du dépôt, pour
+dans `~/Library/Application Support/Pyra/projects.json` — hors du dépôt, pour
 qu'il survive à une réinstallation et parce qu'une app signée ne peut pas écrire
 chez elle sans casser sa signature.
 
