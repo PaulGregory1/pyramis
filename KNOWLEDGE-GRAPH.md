@@ -1,22 +1,22 @@
-<!-- graph-baseline: b6bef0c -->
-# Pyramis — carte du code
+<!-- graph-baseline: 90d2557 -->
+# Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
 Protocole de mise à jour en bas de page.
 
 ## Le pari
 
-Pyramis ne stocke rien qui lui soit propre. Il n'a ni base de données, ni état
+Pyra ne stocke rien qui lui soit propre. Il n'a ni base de données, ni état
 métier. Deux sources de vérité, toutes deux extérieures à l'app :
 
 1. **Les étapes** vivent dans `MILESTONES.md`, à la racine de chaque dépôt suivi.
 2. **Les sessions Claude** viennent de `claude agents --json`, c'est-à-dire de
    Claude Code lui-même.
 
-Conséquence à ne pas perdre de vue : si Pyramis disparaît, rien n'est perdu. Un
+Conséquence à ne pas perdre de vue : si Pyra disparaît, rien n'est perdu. Un
 `MILESTONES.md` reste lisible dans un éditeur, et il est déjà dans le dépôt que Claude
 ouvre quand il travaille dessus. C'est la garde contre le vrai risque du projet —
-qu'un neuvième pyramis vienne s'ajouter aux huit qu'il devait alléger.
+qu'un neuvième pyra vienne s'ajouter aux huit qu'il devait alléger.
 
 Le seul fichier propre à l'app est `projects.json` (le registre : quels dossiers
 suivre, dans quel ordre, avec quelle icône). Il est hors git et se répare à la main.
@@ -47,7 +47,7 @@ dans n'importe quel éditeur. La règle d'affichage qui en découle tient l'app 
 - les étapes vivent dans la carte de leur milestone, donc uniquement dans la vue projet.
 
 Faire remonter le détail de huit projets sur une même page redonnerait la liste
-illisible que Pyramis existe pour éviter. C'est aussi pourquoi il n'y a pas de
+illisible que Pyra existe pour éviter. C'est aussi pourquoi il n'y a pas de
 troisième niveau : le schéma envoyé au modèle n'en propose pas, et `link()` aplatit
 ce qu'un fichier écrit à la main pourrait contenir de plus profond.
 
@@ -74,14 +74,14 @@ cas de désaccord, c'est le graphe machine pour les faits de code, et celui-ci p
 les intentions.
 
 Le bloc que `pointer()` greffe dans le `CLAUDE.md` d'un dépôt est **en anglais** alors
-que la documentation de Pyramis est en français : il est généré à l'identique pour
+que la documentation de Pyra est en français : il est généré à l'identique pour
 tous les dépôts suivis, quelle que soit leur langue, donc il relève de la règle des
 prompts et non de celle de la documentation.
 
 ## La direction artistique
 
 Elle est tirée de `public/brand/logo-pyr.png` (une pyramide à trois étages, violet à
-gauche, bleu à droite) et de `public/brand/brand-pyr.png` (PYRAMIS en capitales fines
+gauche, bleu à droite) et de `public/brand/brand-pyr.png` (PYRA en capitales fines
 très espacées, encre bleu nuit). Les couleurs de `style.css` ne sont pas choisies à
 l'œil : elles ont été prélevées au compte-gouttes dans ces deux fichiers —
 `#000823` pour l'encre, `#6c34d6` et `#3c5bf5` pour les deux bouts du dégradé.
@@ -101,6 +101,12 @@ mot-symbole rogné sur fond transparent (la police du logo n'existe pas sur la
 machine — la réapprocher donnerait un faux, donc c'est une image), et la pyramide
 en 256 / 128 / 64 px. Les originaux restent dans `public/brand/`.
 
+Le mot-symbole est rendu à HAUTEUR constante (85 px), pas à largeur constante :
+`.brand .wordmark` pose `height: 12px`, donc c'est la hauteur qui fixe la taille
+des lettres à l'écran. C'est ce qui a permis de raccourcir PYRAMIS en PYRA — la
+source est rognée après le Δ — sans que les quatre lettres restantes grossissent
+pour remplir la même largeur.
+
 ## Les fichiers
 
 | Fichier | Rôle |
@@ -113,7 +119,7 @@ en 256 / 128 / 64 px. Les originaux restent dans `public/brand/`.
 | `terminals.mjs` | Les pseudo-terminaux. Un `claude` ou un shell réel par panneau. |
 | `public/app.js` | Toute l'UI. Pas de framework, pas d'étape de build. |
 | `electron/main.js` | La coquille Mac : une fenêtre, un menu, un ⌘Q. Importe `server.mjs`, ne décide rien. |
-| `scripts/make-app.sh` | Emballe `build/Pyramis.app` à partir du runtime Electron de `node_modules`. Sans packager. |
+| `scripts/make-app.sh` | Emballe `build/Pyra.app` à partir du runtime Electron de `node_modules`. Sans packager. |
 | `scripts/icon.mjs` | L'`.icns` depuis `logo-pyr.png`. Décode et encode le PNG à la main, aucune dépendance. |
 | `scripts/fix-pty.mjs` | Remet `+x` sur le `spawn-helper` de node-pty après chaque `npm install`. |
 | `scripts/brand.mjs` | Regénère mot-symbole et pyramide depuis les deux originaux. |
@@ -121,7 +127,7 @@ en 256 / 128 / 64 px. Les originaux restent dans `public/brand/`.
 
 ## L'app Mac, et ce qu'elle change (ou pas)
 
-`Pyramis.app` n'est pas un second produit : c'est la même app web, dans une fenêtre
+`Pyra.app` n'est pas un second produit : c'est la même app web, dans une fenêtre
 qui lui appartient. `electron/main.js` fait trois choses — ouvrir la fenêtre, poser
 le menu, importer `server.mjs` dans SON PROCESS — et rien d'autre. Aucune logique
 métier n'est passée de l'autre côté, et c'est la règle à tenir : le jour où Electron
@@ -130,7 +136,7 @@ disparaît, `npm start` et un navigateur suffisent encore.
 **Un seul serveur, un seul registre.** L'app sonde le port avant de démarrer quoi que
 ce soit : si un `npm start` tourne déjà, elle lui emprunte son serveur au lieu
 d'échouer sur EADDRINUSE. Et le registre a quitté le dépôt pour
-`~/Library/Application Support/Pyramis/projects.json` (`registryPath`, `server.mjs`) —
+`~/Library/Application Support/Pyra/projects.json` (`registryPath`, `server.mjs`) —
 obligatoire, parce qu'un bundle signé qui s'écrit dedans invalide sa signature et ne
 redémarre plus sur Apple Silicon ; utile, parce que deux registres donneraient deux
 listes de projets sans que rien ne le dise. L'ancien fichier du dépôt est repris une
@@ -176,7 +182,7 @@ qui ne dit rien de la cause. D'où le `postinstall`. Si les terminaux ne démarr
 plus après une réinstallation, c'est là qu'il faut regarder en premier.
 
 **Les terminaux ne doivent pas hériter de l'environnement d'un Claude parent.**
-Si Pyramis est lancé depuis une session Claude, l'environnement porte
+Si Pyra est lancé depuis une session Claude, l'environnement porte
 `CLAUDE_CODE_CHILD_SESSION` et consorts. Un `claude` qui en hérite se croit
 sous-session : transcript désactivé, donc plus de `/resume`. `NESTING_VARS` dans
 `terminals.mjs` liste ce qu'on retire. Vérifié : sans ce nettoyage, la bannière
@@ -199,6 +205,18 @@ attend donc un silence de 900 ms *et* l'absence de formulation bloquante
 (`BLOCKING` dans `app.js`). Le motif a été resserré après un test : `❯` y figurait
 et bloquait tout, puisque c'est aussi le chevron de l'invite ordinaire. Le bouton
 « ⌥ step » de l'en-tête reste le filet quand l'automatisme rate.
+
+**Le `claude` appelé est résolu à la main, et `~/.local/bin` passe AVANT
+`/opt/homebrew/bin`.** Deux installations cohabitent souvent sur une même machine :
+l'installateur natif dans `~/.local/bin`, qui se met à jour tout seul, et un paquet npm
+dans `/opt/homebrew/bin`, figé au jour de son installation. Lancée depuis le Finder,
+l'app n'hérite pas du PATH du shell : elle reconstruit le sien (`richPath()`), et
+l'ordre des dossiers ajoutés décide donc à quel binaire elle parle. Avec homebrew en
+tête, Pyra interrogeait un claude de six versions de retard et la barre latérale
+affichait `unknown option '--json'` — l'option existe, c'est le binaire qui était vieux.
+`claudeBin()` (dans `terminals.mjs`) renvoie maintenant le chemin complet du premier
+candidat trouvé dans cet ordre, et `agentsError()` traduit « unknown option » en
+« claude trop ancien » plutôt que de laisser croire à un bug de l'app.
 
 **Les panneaux maison ressortent aussi de `claude agents --json`.** Le pty fait
 `exec claude`, donc son pid EST celui de claude. `ownPids` dans `buildState()`
@@ -261,7 +279,7 @@ appelle un LLM pour NOMMER ses communautés si on ne le lui interdit pas. Les
 communautés restent donc « Community N » dans le `GRAPH_REPORT.md` — c'est le prix
 assumé de la règle « aucun appel au modèle ». Y toucher, c'est faire payer un geste
 que l'app déclenche toute seule. `--no-viz` épargne en plus un `graph.html` de
-plusieurs mégaoctets que personne n'ouvre depuis Pyramis.
+plusieurs mégaoctets que personne n'ouvre depuis Pyra.
 
 **L'exclusion va dans `.git/info/exclude`, jamais dans le `.gitignore`.** Le
 `.gitignore` appartient à l'utilisateur et part avec le dépôt s'il le publie. Une app
@@ -305,6 +323,21 @@ un défaut de l'app — vérifier le tampon côté serveur avant de conclure. Et
 un terminal né sous une AUTRE mise en page montre des mots coupés : le dialogue de
 Claude ne se repeint pas à la largeur nouvelle. Recréer le terminal avant de juger.
 
+**L'app s'appelait Pyramis.** Le nom a été raccourci en Pyra, et trois traces de
+l'ancien restent volontairement dans le code, parce qu'elles pointent vers des
+fichiers qui appartiennent à l'utilisateur :
+  — `registryPath()` (`server.mjs`) copie une fois le registre depuis
+    `~/Library/Application Support/Pyramis/projects.json` ; sans cette reprise, le
+    changement de nom viderait la liste de projets sans rien dire ;
+  — `MARK_WAS` (`graph.mjs`) reconnaît encore `<!-- pyramis:graphify -->` dans le
+    `CLAUDE.md` d'un dépôt suivi de longue date, sinon `pointer()` y greffe un
+    second bloc identique ;
+  — `scripts/make-app.sh --install` signale `/Applications/Pyramis.app` sans la
+    jeter : l'identifiant de bundle a changé (`com.paulgregory.pyra`), les deux
+    apps coexistent donc, et c'est à l'utilisateur de supprimer l'ancienne.
+Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
+`PYRA=1`. Elles, personne ne les hérite d'une installation précédente.
+
 ## Ce qui n'est pas fait
 
 - Aucun suivi de quota. N sessions Opus en parallèle vident la fenêtre de 5 h vite ;
@@ -325,7 +358,7 @@ Claude ne se repeint pas à la largeur nouvelle. Recréer le terminal avant de j
 - Retirer un projet du registre ne retire ni son `graphify-out/`, ni le bloc greffé
   dans son `CLAUDE.md`. C'est la règle « ne jamais supprimer un fichier de
   l'utilisateur », et le bloc est délimité précisément pour qu'il l'enlève lui-même.
-- Le gain réel est de l'ordre de **5,8×** sur Pyramis (mesuré par `graphify benchmark`),
+- Le gain réel est de l'ordre de **5,8×** sur Pyra (mesuré par `graphify benchmark`),
   pas des 71× annoncés par le projet : ce chiffre-là vaut pour un dépôt de plusieurs
   centaines de fichiers. Le graphe paie sur PDM ou soc-ai-trading, pas sur un dépôt de
   dix fichiers.
@@ -337,7 +370,7 @@ Claude ne se repeint pas à la largeur nouvelle. Recréer le terminal avant de j
 | Changer la grammaire de `MILESTONES.md` | `milestones.mjs` (`parse` / `serialize` / `apply`), puis `test/milestones.test.mjs` |
 | Renommer le fichier des dépôts | `milestones.mjs` (`FILENAME` / `LEGACY_FILENAME`), après avoir cherché les deux noms sur le disque |
 | Retoucher ce que le modèle propose | `prompts/milestones.md` (aucun redémarrage) |
-| Changer les outils ou le modèle de la génération | `generate.mjs` (`READ_ONLY`, `SCHEMA`, `PYRAMIS_MODEL`) |
+| Changer les outils ou le modèle de la génération | `generate.mjs` (`READ_ONLY`, `SCHEMA`, `PYRA_MODEL`) |
 | Changer la règle de fusion d'une proposition | `milestones.mjs` (`graft`), puis `test/milestones.test.mjs` |
 | Ajouter un champ à une étape | `milestones.mjs` (`mergeItem`, `serialize`), `server.mjs` (`buildState`, `PUT /steps`), `public/app.js` (`stepCard`) |
 | Toucher au cycle de vie d'un terminal | `terminals.mjs` (`create` / `start` / `resize` / `kill`) |
