@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pyramis</title>
+<link rel="icon" href="/brand/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/brand/mark-256.png">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+<body>
+  <header class="bar">
+    <a class="brand" href="#" title="Pyramis">
+      <img class="mark" src="/brand/mark-128.png" alt="">
+      <img class="wordmark" src="/brand/wordmark.png" alt="Pyramis">
+    </a>
+    <nav class="tabs">
+      <button class="tab on" data-view="board">Étapes</button>
+      <button class="tab" data-view="terms">Terminaux <span class="badge" id="term-count">0</span></button>
+    </nav>
+    <div class="right">
+      <span id="live" class="live" title="Sessions Claude vivantes sur la machine"></span>
+      <span id="err" class="err"></span>
+    </div>
+  </header>
+
+  <main>
+    <aside id="side">
+      <button class="proj all on" data-id="">
+        <img class="pe glyph" src="/brand/mark-128.png" alt=""><span class="pn">Tous les projets</span>
+      </button>
+      <div id="projects"></div>
+      <button class="add" id="add-project">＋ Suivre un projet</button>
+    </aside>
+
+    <section id="view-board" class="view"></section>
+    <section id="view-terms" class="view hidden">
+      <div class="terms-bar">
+        <span class="hint">Chaque panneau est un vrai terminal. Fermer l'onglet ne tue pas la session.</span>
+        <span class="grow"></span>
+        <label class="cols">Colonnes
+          <select id="cols"><option>1</option><option selected>2</option><option>3</option></select>
+        </label>
+      </div>
+      <div id="grid" class="grid cols-2"></div>
+    </section>
+  </main>
+
+  <dialog id="browser">
+    <form method="dialog">
+      <h3>Suivre un projet</h3>
+      <div class="crumb" id="crumb"></div>
+      <ul id="dirs" class="dirs"></ul>
+      <menu><button value="cancel">Fermer</button></menu>
+    </form>
+  </dialog>
+
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script src="/app.js"></script>
+</body>
