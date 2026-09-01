@@ -1,4 +1,4 @@
-<!-- graph-baseline: c3ce2e8 -->
+<!-- graph-baseline: b6bef0c -->
 # Pyramis — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -112,11 +112,63 @@ en 256 / 128 / 64 px. Les originaux restent dans `public/brand/`.
 | `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur. |
 | `terminals.mjs` | Les pseudo-terminaux. Un `claude` ou un shell réel par panneau. |
 | `public/app.js` | Toute l'UI. Pas de framework, pas d'étape de build. |
+| `electron/main.js` | La coquille Mac : une fenêtre, un menu, un ⌘Q. Importe `server.mjs`, ne décide rien. |
+| `scripts/make-app.sh` | Emballe `build/Pyramis.app` à partir du runtime Electron de `node_modules`. Sans packager. |
+| `scripts/icon.mjs` | L'`.icns` depuis `logo-pyr.png`. Décode et encode le PNG à la main, aucune dépendance. |
 | `scripts/fix-pty.mjs` | Remet `+x` sur le `spawn-helper` de node-pty après chaque `npm install`. |
 | `scripts/brand.mjs` | Regénère mot-symbole et pyramide depuis les deux originaux. |
 | `public/brand/` | Les originaux (`logo-pyr.png`, `brand-pyr.png`) et leurs déclinaisons. |
 
+## L'app Mac, et ce qu'elle change (ou pas)
+
+`Pyramis.app` n'est pas un second produit : c'est la même app web, dans une fenêtre
+qui lui appartient. `electron/main.js` fait trois choses — ouvrir la fenêtre, poser
+le menu, importer `server.mjs` dans SON PROCESS — et rien d'autre. Aucune logique
+métier n'est passée de l'autre côté, et c'est la règle à tenir : le jour où Electron
+disparaît, `npm start` et un navigateur suffisent encore.
+
+**Un seul serveur, un seul registre.** L'app sonde le port avant de démarrer quoi que
+ce soit : si un `npm start` tourne déjà, elle lui emprunte son serveur au lieu
+d'échouer sur EADDRINUSE. Et le registre a quitté le dépôt pour
+`~/Library/Application Support/Pyramis/projects.json` (`registryPath`, `server.mjs`) —
+obligatoire, parce qu'un bundle signé qui s'écrit dedans invalide sa signature et ne
+redémarre plus sur Apple Silicon ; utile, parce que deux registres donneraient deux
+listes de projets sans que rien ne le dise. L'ancien fichier du dépôt est repris une
+fois, par copie, et n'est plus lu.
+
+**L'emballage n'a pas de packager.** Un bundle Electron EST le runtime de
+`node_modules` avec le code déposé dans `Contents/Resources/app`. Trois détails le
+font démarrer, tous dans `scripts/make-app.sh` : la charge n'emporte que les
+dépendances de production (`npm ls --omit=dev`), les assistants Chromium sont
+renommés avec l'app (ils se trouvent par le `CFBundleName`), et le bundle est
+re-signé à la fin — le retoucher annule la signature qu'il portait, et sur Apple
+Silicon une signature invalide est fatale.
+
+**`node-pty` n'a pas besoin d'être recompilé.** Son prebuild est en N-API
+(`napi_register_module_v1`), donc le même `.node` se charge sous Node et sous
+Electron. `make-app.sh` le vérifie plutôt que de l'espérer : le jour où ça cesse
+d'être vrai, le build échoue au lieu du premier terminal ouvert.
+
+**La barre de l'app EST la barre de titre.** La fenêtre est en `titleBarStyle:
+"hiddenInset"` et la page reçoit `?app=1`, qui allume `body.in-app` : 86 px réservés
+à gauche pour les trois boutons, et la barre devient déplaçable. C'est un paramètre
+d'URL et non un reniflage d'Electron, pour que la capture headless du CLAUDE.md ouvre
+exactement la même page.
+
 ## Ce qu'il faut savoir avant de toucher au code
+
+**Lire dans `~/Documents` peut figer TOUTE l'app.** macOS protège Documents, Bureau
+et Téléchargements par TCC. La demande d'autorisation ne peut s'afficher que si
+l'`Info.plist` porte la chaîne `NS*FolderUsageDescription` correspondante — sinon
+l'`open()` ne revient jamais : pas d'erreur, pas de refus, pas de fenêtre. Et comme
+`MILESTONES.md` est lu de façon SYNCHRONE (`milestones.read`) dans le process qui
+tient aussi le serveur, c'est la boucle d'événements de Node qui s'arrête avec lui.
+Le symptôme ne ressemble en rien à la cause : fenêtre blanche, serveur qui accepte
+les connexions sans jamais répondre, ⌘Q sans effet, 0 % de CPU. Les trois chaînes
+sont posées par `scripts/make-app.sh`. Même blocage si l'écran est verrouillé au
+premier lancement — la demande ne peut pas s'afficher, l'app attend ; déverrouiller
+la débloque. Diagnostic : `sample <pid>`, et chercher `uv_fs_open` → `open` en bas
+de la pile du thread principal.
 
 **`spawn-helper` perd son bit exécutable.** npm extrait les prebuilds de node-pty
 sans les permissions. Chaque `pty.spawn()` échoue alors sur un `posix_spawnp failed`
@@ -298,6 +350,10 @@ Claude ne se repeint pas à la largeur nouvelle. Recréer le terminal avant de j
 | Changer ce que l'interface dit du graphe | `public/app.js` (`graphNote`, `graphButton`), `public/style.css` (`.gnote`) |
 | Cesser de construire un graphe à l'ajout d'un projet | `server.mjs` (`POST /api/projects`, le `b.graph !== false`) |
 | Ajouter une route | `server.mjs`, bloc `http` |
+| Toucher à la fenêtre, au menu, au ⌘Q | `electron/main.js` |
+| Changer ce que le bundle emporte, ou son identité | `scripts/make-app.sh` |
+| Refaire l'icône de l'app | `public/brand/logo-pyr.png`, puis `scripts/icon.mjs` |
+| Déplacer le registre | `server.mjs` (`registryPath`) — jamais dans le dépôt |
 
 ## Protocole de mise à jour
 

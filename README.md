@@ -74,7 +74,30 @@ sont. Une carte qui change de langue en cours de route est illisible.
 
 ## Lancer
 
-    ./start.sh
+Comme une app du Mac :
+
+    npm install
+    ./scripts/make-app.sh --install     # → /Applications/Pyramis.app
+
+Elle a sa fenêtre, son icône dans le Dock, sa barre de menus et son ⌘Q ; on l'ouvre
+depuis Spotlight ou le Launchpad comme n'importe quelle autre. Le serveur tourne
+DANS l'app : il n'y a qu'une chose à lancer, et qu'une chose à quitter — fermer
+l'app arrête les `claude` de ses panneaux au lieu de les laisser orphelins.
+
+**Au tout premier lancement, macOS demande l'accès au dossier Documents.** Il faut
+accepter : sans cette autorisation, Pyramis ne peut pas lire le `MILESTONES.md` des
+projets qui y vivent. Si l'écran est verrouillé, la demande ne peut pas s'afficher et
+l'app attend — déverrouiller suffit à la débloquer.
+
+Ou dans le navigateur, ce qui reste vrai :
+
+    ./start.sh          # ou : npm start, puis http://127.0.0.1:4331
+
+Les deux façons partagent le même serveur : ouvrir l'app quand `npm start` tourne
+déjà REPREND ce serveur au lieu d'en lancer un second. Et le même registre, qui vit
+dans `~/Library/Application Support/Pyramis/projects.json` — hors du dépôt, pour
+qu'il survive à une réinstallation et parce qu'une app signée ne peut pas écrire
+chez elle sans casser sa signature.
 
 Au premier démarrage, six projets sont pré-inscrits s'ils existent : ecdsa.fail,
 carnet Singapour, Skull King, PDM, chess hackathon, SoAI. `＋ Track a project`
