@@ -1,4 +1,4 @@
-<!-- graph-baseline: bdff781 -->
+<!-- graph-baseline: c3ce2e8 -->
 # Pyramis — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -51,6 +51,33 @@ illisible que Pyramis existe pour éviter. C'est aussi pourquoi il n'y a pas de
 troisième niveau : le schéma envoyé au modèle n'en propose pas, et `link()` aplatit
 ce qu'un fichier écrit à la main pourrait contenir de plus profond.
 
+## Le graphe de connaissance, et pourquoi il ne coûte rien
+
+Un projet qu'on ajoute au registre repart avec un graphe Graphify dans son
+`graphify-out/`. C'est le seul geste automatique de l'app, et il tient au fait qu'il
+est **gratuit** : `graphify extract --code-only` lit le code par AST, en local, sans
+clé d'API. Graphify sait aussi extraire le sens des docs, des papiers et des images —
+en envoyant leur contenu à un LLM. Cette porte reste fermée dans `graph.mjs`, et c'est
+la décision qui autorise l'automatisme : ajouter un projet ne doit jamais déclencher
+une dépense qu'on n'a pas demandée. Corollaire à connaître avant de s'étonner : un
+dépôt qui n'est que du markdown produit un graphe presque vide.
+
+Les projets déjà suivis n'en ont pas reçu. Le bouton `◈ Build graph` est là pour eux,
+et pour les graphes que le dépôt a dépassés.
+
+**Deux cartes, et elles ne disent pas la même chose.** Ce `KNOWLEDGE-GRAPH.md` est
+écrit à la main : il porte le *pourquoi* et les pièges, c'est-à-dire ce qu'aucune
+extraction ne trouvera jamais. Le `graphify-out/` est machine, régénérable, et porte
+le *où* : quel symbole appelle quoi, à quelle ligne. L'un ne remplace pas l'autre, et
+c'est pourquoi le `CLAUDE.md` renvoie aux deux. Si l'un doit être cru sur parole en
+cas de désaccord, c'est le graphe machine pour les faits de code, et celui-ci pour
+les intentions.
+
+Le bloc que `pointer()` greffe dans le `CLAUDE.md` d'un dépôt est **en anglais** alors
+que la documentation de Pyramis est en français : il est généré à l'identique pour
+tous les dépôts suivis, quelle que soit leur langue, donc il relève de la règle des
+prompts et non de celle de la documentation.
+
 ## La direction artistique
 
 Elle est tirée de `public/brand/logo-pyr.png` (une pyramide à trois étages, violet à
@@ -82,6 +109,7 @@ en 256 / 128 / 64 px. Les originaux restent dans `public/brand/`.
 | `milestones.mjs` | Analyse et réécriture de `MILESTONES.md`. Aucune dépendance au reste. |
 | `generate.mjs` | L'appel au modèle : un `claude -p` en lecture seule dans le dépôt. |
 | `prompts/milestones.md` | Le prompt de génération. Relu à chaque appel, donc modifiable à chaud. |
+| `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur. |
 | `terminals.mjs` | Les pseudo-terminaux. Un `claude` ou un shell réel par panneau. |
 | `public/app.js` | Toute l'UI. Pas de framework, pas d'étape de build. |
 | `scripts/fix-pty.mjs` | Remet `+x` sur le `spawn-helper` de node-pty après chaque `npm install`. |
@@ -170,6 +198,39 @@ de suite ; l'état vit dans la map `gens` du serveur et ressort dans `/api/state
 L'interface peint l'état « en cours » sans attendre le rafraîchissement suivant,
 sinon le clic aurait l'air de n'avoir rien fait pendant quatre secondes.
 
+**`graphify` n'est pas dans le PATH d'une app lancée depuis le Finder.** `uv tool
+install` pose ses binaires dans `~/.local/bin`, que le PATH d'un process GUI ne
+contient pas. `bin()` cherche donc le PATH d'abord, puis trois emplacements connus.
+Sans cette recherche, chaque construction échouerait sur un `ENOENT` que rien dans
+l'interface n'expliquerait.
+
+**`--no-label` est ce qui garde la construction gratuite.** `graphify cluster-only`
+appelle un LLM pour NOMMER ses communautés si on ne le lui interdit pas. Les
+communautés restent donc « Community N » dans le `GRAPH_REPORT.md` — c'est le prix
+assumé de la règle « aucun appel au modèle ». Y toucher, c'est faire payer un geste
+que l'app déclenche toute seule. `--no-viz` épargne en plus un `graph.html` de
+plusieurs mégaoctets que personne n'ouvre depuis Pyramis.
+
+**L'exclusion va dans `.git/info/exclude`, jamais dans le `.gitignore`.** Le
+`.gitignore` appartient à l'utilisateur et part avec le dépôt s'il le publie. Une app
+de suivi n'a rien à écrire dans un fichier versionné — c'est le même principe que la
+règle sur le `MILESTONES.md`, appliquée à un artefact de construction.
+
+**La péremption se lit par PRÉFIXE.** Le `GRAPH_REPORT.md` abrège le commit à huit
+caractères, `git rev-parse HEAD` en rend quarante. Et un dossier hors git n'est jamais
+déclaré périmé : il n'a pas d'horloge, le prétendre poserait une pastille orange
+permanente sur un projet qui va très bien.
+
+**`state()` lit le rapport, pas le graphe.** Elle est appelée pour chaque projet à
+chaque `/api/state`, donc toutes les quelques secondes. Le `GRAPH_REPORT.md` fait
+quelques kilo-octets là où `graph.json` peut peser plusieurs mégaoctets, et `HEAD` est
+lu directement dans `.git` plutôt que par un sous-processus `git`.
+
+**Un item flex mange les blancs de ses bords.** La ligne d'état du graphe est un
+`display:flex` : les `" · "` écrits dans le texte perdaient leur espace et donnaient
+`8 edges· built from`. Les séparateurs sont donc espacés par le `gap`, jamais par une
+espace dans la chaîne. Vu à l'écran, pas deviné.
+
 **Supprimer un milestone emporte ses étapes.** C'est l'UI qui les joint à la liste
 supprimée (`save()`), pas le serveur : orphelines, elles remonteraient au premier
 niveau et deviendraient des milestones à leur tour.
@@ -204,6 +265,18 @@ Claude ne se repeint pas à la largeur nouvelle. Recréer le terminal avant de j
   n'enlève rien.
 - L'ordre des projets dans la barre latérale est fixe : ceux qui ont des sessions
   actives ne remontent pas d'eux-mêmes.
+- Aucun rafraîchissement automatique du graphe. Il se périme au fil des commits et
+  c'est l'utilisateur qui appuie — `graphify watch` existe, mais un processus par
+  projet suivi tournant en permanence n'a pas été jugé payant.
+- Les communautés du graphe ne sont pas nommées (« Community 0, 1, 2 »). Les nommer
+  demanderait un appel au modèle, et c'est exactement ce que la construction s'interdit.
+- Retirer un projet du registre ne retire ni son `graphify-out/`, ni le bloc greffé
+  dans son `CLAUDE.md`. C'est la règle « ne jamais supprimer un fichier de
+  l'utilisateur », et le bloc est délimité précisément pour qu'il l'enlève lui-même.
+- Le gain réel est de l'ordre de **5,8×** sur Pyramis (mesuré par `graphify benchmark`),
+  pas des 71× annoncés par le projet : ce chiffre-là vaut pour un dépôt de plusieurs
+  centaines de fichiers. Le graphe paie sur PDM ou soc-ai-trading, pas sur un dépôt de
+  dix fichiers.
 
 ## Index inverse — quelle tâche touche quoi
 
@@ -220,6 +293,10 @@ Claude ne se repeint pas à la largeur nouvelle. Recréer le terminal avant de j
 | Toucher à la hiérarchie milestone/étape | `milestones.mjs` (`link`, `insertionPoint`), `public/app.js` (`mains`, `kids`, `subRow`) |
 | Modifier la barre latérale | `public/app.js` (`renderSide`), `public/style.css` (`#side`, `.sessions`) |
 | Retoucher la direction artistique | `public/style.css` (bloc `:root`), `scripts/brand.mjs` pour les images |
+| Changer ce que Graphify extrait (docs, images, LLM) | `graph.mjs` (`build`), en pesant d'abord la règle « aucun appel au modèle » |
+| Retoucher le bloc greffé dans les `CLAUDE.md` | `graph.mjs` (`BLOCK`, `MARK_OPEN`), puis `test/graph.test.mjs` |
+| Changer ce que l'interface dit du graphe | `public/app.js` (`graphNote`, `graphButton`), `public/style.css` (`.gnote`) |
+| Cesser de construire un graphe à l'ajout d'un projet | `server.mjs` (`POST /api/projects`, le `b.graph !== false`) |
 | Ajouter une route | `server.mjs`, bloc `http` |
 
 ## Protocole de mise à jour
