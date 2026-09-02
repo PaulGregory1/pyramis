@@ -471,6 +471,26 @@ headless de capture, peut n'en donner aucun. Dans les deux cas l'addon est jeté
 (`onContextLoss`, ou le `try` autour de sa construction) et xterm revient au rendu DOM de
 lui-même. Un panneau qui défile moins bien vaut mieux qu'un panneau noir.
 
+**Le peintre n'était que la moitié du défilement.** L'autre est la COURSE, et elle se
+perdait ailleurs. Dès qu'une application plein écran lit la molette — `claude` le fait —
+xterm cesse de faire défiler son tampon et traduit chaque cran en séquence pour
+l'application. Ce chemin porte une heuristique « trackpad » : sous 50 px de delta, la
+course est multipliée par **0,3**. Mesuré dans Electron sur un geste de 155 px (neuf
+lignes de 17 px, ce que Terminal.app fait défiler) : **2 lignes contre 9**. Le geste
+arrivait entier et repartait amputé des trois quarts — c'est tout le « plus lent qu'un
+vrai terminal », et aucun réglage de rendu ne pouvait le corriger, le rendu tenant déjà
+120 fps à cinq panneaux (mesuré, avec ET sans WebGL).
+
+`wheel()` le compense là où l'amortissement est appliqué, et nulle part ailleurs :
+`scrollSensitivity` multiplie le delta AVANT le 0,3, donc 3,3 les annule (mesuré : 9
+lignes sur 9). Les deux gardes valent le chiffre. Au-dessus de 50 px c'est une VRAIE
+souris, qu'xterm n'amortit pas — multiplier là rendrait chaque cran trois fois trop long
+(vérifié : 2 lignes avant, 2 après). Et sans suivi de souris c'est le tampon d'xterm qui
+défile, par le défileur lissé de vscode, qui n'amortit rien non plus — même faute, sur le
+panneau shell cette fois. Le réglage est donc posé cran par cran, en CAPTURE sur l'hôte :
+xterm écoute sur `.xterm`, un enfant, et seule la capture passe avant lui. Rien n'est
+écrit dans le pty depuis là — `typeInto()` reste le seul.
+
 **Le module doit voyager avec l'app.** `server.mjs` le sert sous `/vendor/addon-webgl.js`
 comme les deux autres, et `scripts/make-app.sh` VÉRIFIE sa présence dans le bundle : un
 module oublié là ne se voit qu'à l'exécution, dans l'app empaquetée, et jamais en
@@ -890,6 +910,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer la découpe de la grille des terminaux | `public/app.js` (`gridShape`, `layout`, les trois constantes `CELL_*`), jamais sans recapture headless |
 | Toucher à l'agrandissement d'un panneau | `public/app.js` (`setZoom`, `zoomBack`, `zoomSlot`, `layout`), `public/style.css` (`.pane.zoomed`, `.zback`, `.zclose`, `.paneslot`) — les noms courts sont un espace PLAT, `grep` avant d'en choisir un |
 | Toucher au peintre du terminal | `public/app.js` (`gpu`), `server.mjs` (`/vendor/addon-webgl.js`), `scripts/make-app.sh` (la liste des modules vérifiés) |
+| Toucher au défilement d'un panneau | `public/app.js` (`wheel`, `WHEEL_DAMPED`, `WHEEL_UNDAMP`) |
 | Changer ce qu'un clic fait dans un panneau | `public/app.js` (`zoomTarget`) — la liste des exceptions EST la règle |
 | Toucher au « ＋ » ou au choix du projet | `public/app.js` (`addTile`, `askTerminal`, `renderNewTerm`), `public/index.html` (`#newterm`), `public/style.css` (`.addpane`, `.tlist`) |
 | Toucher au dépôt d'un fichier dans un panneau | `public/app.js` (`dropTarget`, `dropFiles`, `typeInto`), `server.mjs` (`/drop`, `DROPS`, `readRaw`, `dropName`) |

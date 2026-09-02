@@ -1384,6 +1384,38 @@ function gpu(term) {
   } catch { /* pas de WebGL ici : le rendu DOM reste, et il suffit */ }
 }
 
+// La molette d'un trackpad, rendue à sa vraie course. C'est l'autre moitié du
+// défilement — le peintre ci-dessus décide de la FLUIDITÉ, celle-ci de la DISTANCE.
+//
+// Dès qu'une application plein écran lit la molette (`claude` le fait), xterm cesse de
+// faire défiler son propre tampon : il traduit chaque cran en séquence d'échappement
+// pour l'application. Ce chemin-là porte une heuristique « trackpad » — sous 50 px de
+// delta, xterm multiplie la course par 0,3 — et elle est trop sévère. Mesuré dans
+// Electron, un geste de 155 px (neuf lignes de 17 px, ce que Terminal.app fait
+// défiler) : 2 lignes chez nous, 9 dans Terminal.app. Le geste est bien là, il arrive
+// amputé des trois quarts — c'est exactement le « plus lent qu'un vrai terminal ».
+//
+// On le compense là où il est appliqué, et NULLE PART ailleurs. `scrollSensitivity`
+// multiplie le delta AVANT l'amortissement : à 3,3 les deux se répondent et la course
+// redevient celle du doigt (mesuré : 8 lignes sur 9). Les deux gardes comptent autant
+// que le chiffre :
+//   — au-delà de 50 px, c'est une VRAIE souris, xterm n'amortit pas, et multiplier là
+//     rendrait chaque cran trois fois trop long ;
+//   — sans suivi de souris, c'est le tampon de xterm qui défile, par le défileur lissé
+//     qui n'amortit rien non plus — même faute, et sur le panneau shell cette fois.
+// Le réglage est donc posé cran par cran, juste avant qu'xterm lise l'événement : en
+// capture, pour passer avant lui, et `passive` parce qu'on ne fait que régler un
+// nombre. Rien n'est écrit dans le pty d'ici — `typeInto()` reste le seul à le faire.
+const WHEEL_DAMPED = 50;   // le seuil « trackpad » d'xterm, en pixels
+const WHEEL_UNDAMP = 3.3;  // l'inverse du 0,3 qu'il applique en dessous
+
+function wheel(term, host) {
+  host.addEventListener("wheel", (e) => {
+    const read = term.modes.mouseTrackingMode !== "none";
+    term.options.scrollSensitivity = read && Math.abs(e.deltaY) < WHEEL_DAMPED ? WHEEL_UNDAMP : 1;
+  }, { capture: true, passive: true });
+}
+
 function makePane(t) {
   const root = el("div", "pane" + (t.alive ? "" : " dead"));
   const head = el("header");
@@ -1455,6 +1487,7 @@ function makePane(t) {
   term.loadAddon(fit);
   term.open(host);
   gpu(term);
+  wheel(term, host);
 
   const pane = {
     term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false,
