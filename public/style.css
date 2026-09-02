@@ -347,7 +347,12 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
   font-variant-numeric: tabular-nums; display: flex; gap: .34em; align-items: baseline; flex-wrap: wrap;
 }
 .gnote .faint { color: var(--faint); }
+.gnote .dirty { color: #9a6a12; }
 .gnote.stale { color: #9a6a12; }
+/* Le compte rendu d'installation est une COLONNE, pas une ligne : il emprunte la
+   taille et la couleur de `.gnote` et rien d'autre. Sans ce redressement, ses gestes
+   se rangeraient côte à côte sur une seule ligne. */
+.gnote.col { flex-direction: column; align-items: stretch; gap: 5px; }
 .btn.warn { color: #9a6a12; border-color: #e6d3a8; }
 .btn.warn:hover { border-color: #cbab6a; }
 
@@ -393,6 +398,105 @@ dialog h3 { margin: 0 0 12px; font-size: 11px; font-weight: 600; text-transform:
 .dirs li button.up { color: var(--dim); }
 dialog menu { display: flex; justify-content: flex-end; padding: 0; margin: 14px 0 0; }
 dialog menu button { background: var(--panel); border: 1px solid var(--line-2); color: var(--ink); font: inherit; font-size: 12.5px; padding: 7px 13px; border-radius: var(--r-sm); cursor: pointer; }
+.hidden { display: none !important; }
+
+/* ------------------------------------------------- réglages et création */
+/* Deux dialogues qui se ressemblent parce qu'ils parlent de la même chose : le
+   panneau règle ce qui se passera, le formulaire l'applique une fois. Ils
+   partagent donc `.frow`, `.opts` et `.fhint` — une divergence visuelle entre les
+   deux ferait croire à deux mécanismes différents. */
+
+.gear {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  background: none; border: 0; border-radius: 7px; cursor: pointer; color: var(--dim);
+}
+.gear:hover { color: var(--ink); background: var(--panel-2); }
+/* Les dents sont plus épaisses et plus courtes que le cercle : c'est ce rapport qui
+   fait lire une roue dentée plutôt qu'un soleil. Vu à l'écran, pas deviné. */
+.gear svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; }
+.gear svg .teeth { stroke-width: 2; }
+
+#settings, #creator { width: min(560px, 94vw); padding: 0 20px 20px; max-height: 88vh; overflow-y: auto; }
+.dhead.flat {
+  position: sticky; top: 0; z-index: 1;
+  margin: 0 -20px 4px; padding: 15px 14px 11px 20px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+
+.sset { padding: 15px 0; border-bottom: 1px solid var(--line); }
+.sset:last-child { border-bottom: 0; padding-bottom: 4px; }
+.sset h4 {
+  margin: 0 0 11px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: var(--track); color: var(--dim);
+}
+
+/* Une ligne de formulaire : l'intitulé à gauche, le contrôle à droite, et la même
+   largeur d'intitulé partout — c'est l'alignement de la colonne de gauche qui fait
+   qu'un panneau de réglages se lit d'un coup d'œil plutôt que ligne à ligne. */
+.frow { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
+.frow .fl { flex: 0 0 128px; font-size: 12.5px; color: var(--ink-2); }
+.frow select, .frow input[type="text"] {
+  flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--line-2);
+  border-radius: 7px; color: var(--ink); font: inherit; font-size: 12.5px; padding: 6px 9px; outline: none;
+}
+.frow input.narrow { flex: 0 0 84px; }
+.frow select:focus, .frow input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.frow .btn { flex: 1; justify-content: flex-start; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fhint { margin: 2px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--faint); }
+.fhint i { font-style: normal; color: var(--dim); }
+
+/* Le provider. Une ligne par provider ; il n'y en a qu'un aujourd'hui, et la mise en
+   forme est faite pour que le deuxième s'ajoute sans rien changer ici. */
+.prov { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.pv-row {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 10px 12px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.pv-row:hover { border-color: var(--line-2); }
+.pv-row.on { border-color: transparent; box-shadow: 0 0 0 1.5px var(--accent); }
+.pv-row .tick { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--line-2); flex: 0 0 13px; }
+.pv-row.on .tick { border-color: transparent; background: var(--grad); }
+.pv-row .nm { font-size: 13px; font-weight: 550; }
+.pv-row .vd { font-size: 11.5px; color: var(--faint); }
+.pv-row .st { margin-left: auto; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
+.pv-row .st.bad { color: var(--blocked); }
+
+/* L'état d'une connexion. Une pastille, un nom, une phrase — et la phrase porte
+   toujours la COMMANDE à taper quand quelque chose manque, jamais un simple constat. */
+.conn { display: flex; align-items: baseline; gap: 9px; margin-bottom: 12px; font-size: 12.5px; flex-wrap: wrap; }
+.conn .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--done); flex: 0 0 7px; align-self: center; }
+.conn.off .cdot { background: none; border: 1.5px solid var(--faint); }
+.conn .cn { font-weight: 550; }
+.conn .cs { color: var(--dim); }
+.conn code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
+
+/* Les automatismes. Une case, un intitulé, une ligne d'explication — et pour celui
+   qui dépense, une étiquette qui le dit. C'est le seul de la liste qui coûte. */
+.opts { display: flex; flex-direction: column; gap: 2px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+.opt:hover { background: var(--panel-2); }
+.opt input { margin: 2px 0 0; accent-color: var(--accent); width: 14px; height: 14px; flex: 0 0 14px; }
+.opt .ol { font-size: 12.5px; color: var(--ink); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.opt .od { font-size: 11.5px; color: var(--faint); line-height: 1.5; margin-top: 1px; }
+.opt.off { opacity: .45; }
+.tag {
+  font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
+  padding: 1.5px 6px; border-radius: 20px; background: var(--panel-2); color: var(--dim);
+}
+.tag.free { color: var(--done); background: color-mix(in srgb, var(--done) 11%, transparent); }
+.tag.cost { color: #9a6a12; background: #9a6a1219; }
+
+/* L'installation d'un projet qu'on vient de créer, telle qu'elle se déroule. Chaque
+   geste garde sa ligne : un échec au milieu n'efface pas ce qui a réussi avant. */
+.fsteps { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.fstep { display: flex; align-items: baseline; gap: 9px; font-size: 12px; color: var(--dim); }
+.fstep .fi { flex: 0 0 13px; text-align: center; font-size: 11px; }
+.fstep.ok .fi { color: var(--done); }
+.fstep.bad .fi, .fstep.bad .fm { color: var(--blocked); }
+.fstep .fn { color: var(--ink); }
+.fstep .fm { color: var(--faint); min-width: 0; }
 
 /* --------------------------------------------------- les deux visionneuses */
 /* Deux dialogues plein écran, en lecture seule : le graphe du code et l'arbre des

@@ -14,7 +14,7 @@ const STATUS = {
 };
 const ORDER = ["todo", "doing", "blocked", "done"];
 
-const state = { data: null, selected: "", view: "board", filter: "all", dialog: "" };
+const state = { data: null, selected: "", view: "board", filter: "all", dialog: "", panel: "" };
 const panes = new Map(); // id -> { term, fit, ws, root, seed, lastData, booted }
 
 /* ------------------------------------------------------------------ état */
@@ -344,6 +344,70 @@ function renderProject(view, p) {
   view.append(milestoneList(p));
 }
 
+/* ------------------------------------------------- l'installation, la synchro */
+
+// Ce que la création d'un projet a fait, geste par geste. La liste ne disparaît pas
+// quand elle est finie : c'est le compte rendu d'un dépôt qu'on vient de fabriquer,
+// et savoir que le dépôt distant a échoué reste utile une heure plus tard. Elle
+// s'efface au premier rechargement du serveur, ce qui est la bonne durée de vie —
+// elle n'appartient à personne.
+function forgeNote(p) {
+  const f = p.forge;
+  if (!f || (!f.steps.length && !f.error)) return null;
+  const box = el("div", "gnote col");
+  box.append(el("div", "pv-label", f.running ? "Setting the project up…" : "Project set up"));
+  const list = el("div", "fsteps");
+  for (const s of f.steps) {
+    const row = el("div", "fstep " + (s.ok ? "ok" : "bad"));
+    row.append(el("span", "fi", s.ok ? "✓" : "✕"));
+    row.append(el("span", "fn", s.name));
+    if (s.error || s.note) row.append(el("span", "fm", s.error || s.note));
+    list.append(row);
+  }
+  if (f.running) list.append(el("div", "fstep", "…"));
+  if (f.error) list.append(el("div", "fstep bad", f.error));
+  box.append(list);
+  return box;
+}
+
+// Un projet né dans Pyra porte `auto.sync` : l'app commite ce qu'elle écrit chez lui.
+// Un projet ajouté depuis la machine ne l'a pas, et le bouton reste la seule façon
+// d'obtenir le geste — une fois, sciemment. C'est la même forme que `◈ Build graph`.
+function syncButton(p, cls) {
+  const b = el("button", cls, "⇧ Push milestones");
+  b.disabled = !p.exists;
+  b.title = p.auto?.sync
+    ? "Pyra commits and pushes MILESTONES.md by itself in this project. This does it now."
+    : "Commits and pushes only what Pyra writes here — MILESTONES.md, and the block it grafts into CLAUDE.md. Your own changes are left alone.";
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await api("POST", `/api/projects/${p.id}/sync`, {});
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+    b.disabled = false;
+    refresh();
+  };
+  return b;
+}
+
+function syncNote(p) {
+  const s = p.sync;
+  if (!s) return null;
+  const box = el("div", "gnote");
+  if (!s.ok) box.append(el("span", "dirty", "Sync failed: " + (s.error || "unknown")));
+  else if (s.skipped) box.append(el("span", "faint", "Nothing to push — " + s.skipped + "."));
+  else {
+    box.append(el("span", null, "Committed"), el("code", null, s.committed || ""));
+    // Un push qui échoue n'est pas un commit perdu : il est fait, il attend. Le dire
+    // ainsi évite qu'on refasse le geste en croyant avoir tout raté.
+    if (s.pushed) box.append(el("span", "faint", "and pushed."));
+    else box.append(el("span", "dirty", `— not pushed: ${s.pushError || "no remote"}. The commit is in the repository.`));
+  }
+  return box;
+}
+
 /* -------------------------------------------------------------- l'aperçu */
 
 // L'aperçu coûte un `git log`, un `git status` et une lecture du README : trop cher
@@ -375,6 +439,10 @@ function previewPanel(p) {
 
   const blurb = el("div", "pv-blurb");
   if (pv?.blurb?.text) blurb.textContent = pv.blurb.text;
+  // Un README réduit à son titre EXISTE : c'est le cas de tout projet qu'on vient de
+  // créer. Le dire « absent » enverrait chercher un fichier qui est là, et laisserait
+  // croire que la création l'a oublié.
+  else if (pv?.blurb) blurb.append(el("i", null, `${pv.blurb.file} has nothing but its title yet.`));
   else blurb.append(el("i", null, pv ? "No README in this repository." : "Reading the repository…"));
   left.append(blurb);
 
@@ -396,6 +464,20 @@ function previewPanel(p) {
       g.append(el("span", "faint", ago(pv.git.last.at)));
     } else g.append(el("span", "faint", "no commit yet"));
     if (pv.git.dirty) g.append(el("span", "dirty", `${pv.git.dirty} uncommitted`));
+    // Le distant, en une expression. « ahead 2 » est la seule chose qu'on veuille
+    // savoir d'un coup d'œil : y a-t-il du travail enregistré ici que personne
+    // d'autre n'a. Pas de distant du tout est un fait, pas un défaut — beaucoup de
+    // dépôts n'en ont pas et ne s'en portent pas plus mal.
+    if (pv.remote?.repo) {
+      if (!pv.remote.remote) g.append(el("span", "faint", "local only"));
+      else if (!pv.remote.upstream) g.append(el("span", "faint", "no upstream"));
+      else if (pv.remote.ahead || pv.remote.behind) {
+        const bits = [];
+        if (pv.remote.ahead) bits.push(`ahead ${pv.remote.ahead}`);
+        if (pv.remote.behind) bits.push(`behind ${pv.remote.behind}`);
+        g.append(el("span", "dirty", bits.join(", ")));
+      } else g.append(el("span", "faint", "in sync"));
+    }
     left.append(g);
   } else if (pv) {
     left.append(el("div", "pv-git", "Not a git repository."));
@@ -430,9 +512,13 @@ function previewPanel(p) {
   bGit.title = "The commit tree, branches side by side.";
   bGit.onclick = () => openViewer("git", p);
 
-  acts.append(bGraph, bGit, el("span", "grow"), graphButton(p, "btn ghost"), genButton(p, "btn ghost"));
+  acts.append(bGraph, bGit, el("span", "grow"), syncButton(p, "btn ghost"), graphButton(p, "btn ghost"), genButton(p, "btn ghost"));
   box.append(acts);
 
+  const fnote = forgeNote(p);
+  if (fnote) box.append(fnote);
+  const snote = syncNote(p);
+  if (snote) box.append(snote);
   const gnote = graphNote(p);
   if (gnote) box.append(gnote);
   const note = genNote(p);
@@ -1377,14 +1463,42 @@ function render() {
   const p = current();
   if (state.dialog && p?.exists) showViewer(state.dialog, p);
   else for (const kind of ["graph", "git"]) if ($("#" + kind).open) $("#" + kind).close();
+
+  // Le panneau suit l'adresse dans les DEUX sens : ouvert par l'adresse au chargement,
+  // et l'adresse effacée quand on le ferme. Sans le second, un rechargement rouvrirait
+  // un panneau qu'on venait de fermer.
+  showPanel(state.panel);
 }
 
+let shownPanel = "";
+function showPanel(which) {
+  if (which === shownPanel) return;
+  shownPanel = which;
+  for (const [key, id] of [["settings", "#settings"], ["new", "#creator"]]) {
+    const dlg = $(id);
+    if (which === key) { if (!dlg.open) (key === "settings" ? openSettings() : openCreator()); }
+    else if (dlg.open) dlg.close();
+  }
+}
+
+// Fermer un panneau — au bouton, à Échap, ou au clic hors du cadre — efface son
+// adresse. `close` couvre les trois, `showModal` n'en couvre aucune tout seul.
+const forgetPanel = () => { if (state.panel) { state.panel = ""; shownPanel = ""; writeHash(); } };
+
 /* -------------------------------------------------- ajouter un projet */
+
+// Le même navigateur de dossiers sert aux DEUX chemins, et c'est voulu : ils partent
+// du même geste — désigner un endroit sur le disque — et ne divergent qu'après.
+// `mode` dit lequel : « track » suit le dossier qu'on ouvre, « pick » ne fait que
+// rapporter le dossier PARENT dans lequel le nouveau projet naîtra.
+let browseMode = "track";
+let browseAt = "";
 
 async function browse(dir) {
   const q = dir ? `?dir=${encodeURIComponent(dir)}` : "";
   const data = await api("GET", "/api/browse" + q);
-  $("#crumb").textContent = data.dir.replace(/^\/Users\/[^/]+/, "~");
+  browseAt = data.dir;
+  $("#crumb").textContent = short(data.dir);
   const ul = $("#dirs");
   ul.textContent = "";
 
@@ -1401,6 +1515,10 @@ async function browse(dir) {
     if (d.known) b.append(el("span", "known", "already tracked"));
     b.onclick = async (e) => {
       e.preventDefault();
+      // En mode « pick », un clic ne fait qu'entrer : on choisit le dossier où l'on
+      // est, par le bouton du bas. Confondre les deux gestes ferait créer un projet
+      // dans le premier dossier survolé.
+      if (browseMode === "pick") return browse(d.path);
       if (d.known) return browse(d.path);
       if (confirm(`Track “${d.name}”?\nOK to add it, Cancel to go inside.`)) {
         await api("POST", "/api/projects", { path: d.path, name: d.name });
@@ -1409,6 +1527,241 @@ async function browse(dir) {
       } else browse(d.path);
     };
     li.append(b); ul.append(li);
+  }
+}
+
+const short = (s) => String(s || "").replace(/^\/Users\/[^/]+/, "~");
+
+function openBrowser(mode) {
+  browseMode = mode;
+  $("#browser-title").textContent = mode === "pick" ? "Where should it live?" : "Track a project";
+  $("#pick-here").classList.toggle("hidden", mode !== "pick");
+  $("#browser").showModal();
+  browse(mode === "pick" ? newProject.parent : "");
+}
+
+/* ------------------------------------------------------------ les réglages */
+
+// Les réglages voyagent dans `/api/state` : ils vivent en mémoire côté serveur, donc
+// les relire ne coûte rien. Les CONNEXIONS, elles, coûtent deux sous-processus (`gh`
+// et `claude --version`) — on ne les demande qu'à l'ouverture du panneau, jamais dans
+// la boucle des quatre secondes.
+const settings = () => state.data?.settings || null;
+let providers = [];
+let conns = null;
+
+// Les automatismes, écrits UNE fois et rendus deux : dans le panneau (les défauts) et
+// dans le formulaire de création (ce projet-ci). Deux listes finiraient par diverger,
+// et l'utilisateur croirait à deux réglages différents pour la même chose.
+//
+// `cost` porte la seule distinction qui compte vraiment ici. Tout ce que l'app
+// déclenche d'elle-même est gratuit ; une seule ligne dépense, elle est marquée, et
+// elle est décochée par défaut.
+const CREATE_OPTS = [
+  {
+    key: "git", label: "Initialise a git repository", cost: "free",
+    desc: "git init, then a first commit holding the README and the milestones.",
+  },
+  {
+    key: "remote", label: "Create the GitHub repository", cost: "free", needs: "git",
+    desc: "gh repo create, pushed straight away, using the account signed in above.",
+  },
+  {
+    key: "graph", label: "Build the knowledge graph", cost: "free",
+    desc: "Local AST extraction — no model call, no token. A project born a minute ago has no code yet, so this stays empty until there is some.",
+  },
+  {
+    key: "milestones", label: "Write a starter MILESTONES.md", cost: "free",
+    desc: "Three lines meant to be replaced. Written on disk, not by the model.",
+  },
+  {
+    key: "generate", label: "Ask the model for milestones", cost: "cost",
+    desc: "Claude reads the repository and its proposals are grafted in. This is the one that spends tokens — and a repository that was just born has almost nothing to read.",
+  },
+  {
+    key: "sync", label: "Keep git in sync", cost: "free", needs: "git",
+    desc: "Commits and pushes only what Pyra writes: MILESTONES.md and the block it grafts into CLAUDE.md. Never your own work in progress.",
+  },
+];
+
+// Une case par automatisme. `needs` grise celles qui n'ont plus de sens — décocher
+// « git » rend « GitHub » et « sync » sans objet, et les laisser cliquables ferait
+// croire qu'on peut pousser dans un dépôt qui n'existe pas.
+function optList(host, values, onChange) {
+  host.textContent = "";
+  for (const o of CREATE_OPTS) {
+    const dead = o.needs && !values[o.needs];
+    const row = el("label", "opt" + (dead ? " off" : ""));
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = !!values[o.key] && !dead;
+    box.disabled = dead;
+    box.onchange = () => { values[o.key] = box.checked; onChange(o.key, box.checked); optList(host, values, onChange); };
+    const txt = el("div");
+    const line = el("div", "ol");
+    line.append(el("span", null, o.label));
+    line.append(el("span", "tag " + o.cost, o.cost === "cost" ? "spends tokens" : "free"));
+    txt.append(line, el("div", "od", o.desc));
+    row.append(box, txt);
+    host.append(row);
+  }
+}
+
+async function openSettings() {
+  $("#settings").showModal();
+  renderSettings();
+  // Les connexions arrivent après coup : le panneau s'ouvre tout de suite et se
+  // complète, plutôt que de faire attendre un clic sur deux sous-processus.
+  conns = await api("GET", "/api/connections").catch(() => null);
+  const s = await api("GET", "/api/settings").catch(() => null);
+  if (s) providers = s.providers;
+  renderSettings();
+}
+
+function renderSettings() {
+  const set = settings();
+  if (!set) return;
+
+  const list = providers.length ? providers : [{ id: set.provider, name: "Claude", vendor: "Anthropic", models: [""] }];
+
+  const host = $("#providers");
+  host.textContent = "";
+  for (const pv of list) {
+    const row = el("button", "pv-row" + (pv.id === set.provider ? " on" : ""));
+    row.type = "button";
+    row.append(el("span", "tick"));
+    const txt = el("div");
+    txt.append(el("div", "nm", pv.name), el("div", "vd", pv.vendor));
+    row.append(txt);
+
+    // L'état réel du binaire, pas une promesse : une version trop vieille ou un
+    // exécutable absent se lisent ICI, plutôt qu'au premier échec de génération.
+    const st = el("div", "st");
+    if (conns?.provider && conns.provider.id === pv.id) {
+      if (conns.provider.error) { st.classList.add("bad"); st.textContent = conns.provider.error; }
+      else {
+        st.append(el("div", null, conns.provider.version));
+        st.append(el("div", null, short(conns.provider.bin)));
+      }
+    } else st.textContent = pv.id === set.provider ? "checking…" : "";
+    row.append(st);
+
+    row.onclick = () => saveSettings({ provider: pv.id });
+    host.append(row);
+  }
+
+  const models = list.find((x) => x.id === set.provider)?.models || [""];
+  const sel = $("#set-model");
+  sel.textContent = "";
+  for (const m of models) {
+    const o = el("option", null, m || "Default");
+    o.value = m;
+    if (m === set.model) o.selected = true;
+    sel.append(o);
+  }
+  sel.onchange = () => saveSettings({ model: sel.value });
+
+  const gh = $("#conn-github");
+  gh.textContent = "";
+  gh.className = "conn" + (conns?.github?.authenticated ? "" : " off");
+  gh.append(el("span", "cdot"));
+  gh.append(el("span", "cn", "GitHub"));
+  if (!conns) gh.append(el("span", "cs", "checking…"));
+  else if (conns.github.authenticated) gh.append(el("span", "cs", "signed in as " + conns.github.login));
+  else {
+    // Le message porte la commande à taper. Un simple « non connecté » laisserait
+    // l'utilisateur chercher où, et l'app ne stocke aucun jeton : c'est `gh` qui
+    // tient l'authentification, dans le trousseau du Mac.
+    const cs = el("span", "cs");
+    const m = /run: (.+)$/.exec(conns.github.error || "");
+    if (m) { cs.append("not connected — run "); cs.append(el("code", null, m[1])); }
+    else cs.textContent = conns.github.error || "not connected";
+    gh.append(cs);
+  }
+
+  const vis = $("#set-visibility");
+  vis.value = set.github.visibility;
+  vis.onchange = () => saveSettings({ github: { visibility: vis.value } });
+
+  const br = $("#set-branch");
+  if (document.activeElement !== br) br.value = set.github.defaultBranch;
+  br.onchange = () => saveSettings({ github: { defaultBranch: br.value.trim() || "main" } });
+
+  optList($("#create-opts"), { ...set.create }, (key, val) => saveSettings({ create: { [key]: val } }));
+}
+
+async function saveSettings(patch) {
+  const r = await api("PUT", "/api/settings", patch);
+  if (state.data) state.data.settings = r.settings;
+  providers = r.providers;
+  // Changer de provider change le binaire : l'état affiché n'est plus le bon.
+  if (patch.provider) { conns = null; renderSettings(); conns = await api("GET", "/api/connections").catch(() => null); }
+  renderSettings();
+}
+
+/* ------------------------------------------------- créer un projet de zéro */
+
+// Ce que le formulaire tient entre deux ouvertures : le dossier parent choisi survit,
+// puisqu'on crée en général plusieurs projets au même endroit.
+const newProject = { parent: "", opts: null };
+
+function openCreator() {
+  const set = settings();
+  if (!set) return;
+  newProject.opts = { ...set.create };
+  if (!newProject.parent) newProject.parent = "";
+  $("#new-name").value = "";
+  $("#new-error").textContent = "";
+  $("#creator").showModal();
+  renderCreator();
+  $("#new-name").focus();
+}
+
+function renderCreator() {
+  const name = $("#new-name").value.trim();
+  const parent = newProject.parent || "~/Documents";
+  $("#new-parent").textContent = short(parent);
+  // Le chemin exact est montré AVANT la création. Un nom devient un nom de dossier —
+  // « Skull King » donne « Skull King », mais le dépôt GitHub, lui, s'appellera
+  // « skull-king ». Le voir d'avance évite la surprise après coup.
+  $("#new-path").textContent = name
+    ? `${short(parent)}/${name.replace(/[/\\:\0]/g, "-")}` + (newProject.opts.remote ? `  ·  github.com/…/${slugify(name)}` : "")
+    : "Pick a name and the folder will follow it.";
+  optList($("#new-opts"), newProject.opts, () => renderCreator());
+}
+
+// Le même nettoyage que `slug()` côté serveur, pour ANNONCER le nom du dépôt. Le
+// serveur reste seul juge : ceci n'est qu'un aperçu, jamais ce qui est envoyé.
+const slugify = (s) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 90).toLowerCase();
+
+async function createProject() {
+  const name = $("#new-name").value.trim();
+  const err = $("#new-error");
+  err.textContent = "";
+  if (!name) { err.textContent = "It needs a name."; return; }
+
+  const go = $("#new-go");
+  go.disabled = true;
+  try {
+    const proj = await api("POST", "/api/projects/new", {
+      name,
+      emoji: $("#new-emoji").value.trim() || "🌱",
+      parent: newProject.parent || undefined,
+      ...newProject.opts,
+    });
+    $("#creator").close();
+    // On ouvre le projet tout de suite : l'installation se déroule sous ses yeux,
+    // dans l'étage du haut. Attendre la fin sur un dialogue figé donnerait
+    // l'impression que le clic n'a rien fait.
+    state.selected = proj.id;
+    writeHash();
+    await refresh();
+  } catch (e) {
+    err.textContent = String(e.message || e);
+  } finally {
+    go.disabled = false;
   }
 }
 
@@ -1421,6 +1774,12 @@ function readHash() {
   state.selected = h.get("p") || "";
   const d = h.get("d");
   state.dialog = state.selected && (d === "graph" || d === "git") ? d : "";
+  // Les deux panneaux ont une adresse eux aussi (`#s=settings`, `#s=new`). Même
+  // raison que pour les visionneuses : la vérification visuelle se fait en headless,
+  // où personne ne clique — un panneau sans adresse est un panneau qu'on ne peut pas
+  // regarder autrement qu'à la main.
+  const sp = h.get("s");
+  state.panel = sp === "settings" || sp === "new" ? sp : "";
   showView(h.get("v") === "terms" ? "terms" : "board");
 }
 function writeHash() {
@@ -1428,6 +1787,7 @@ function writeHash() {
   if (state.selected) h.set("p", state.selected);
   if (state.view === "terms") h.set("v", "terms");
   if (state.dialog && state.selected) h.set("d", state.dialog);
+  if (state.panel) h.set("s", state.panel);
   const next = h.toString() ? "#" + h : "#";
   if (location.hash !== next) history.replaceState(null, "", next);
 }
@@ -1438,7 +1798,24 @@ addEventListener("hashchange", () => { readHash(); render(); });
 $("#cols").value = localStorage.getItem("pyra.cols") || "2";
 $("#cols").onchange = setCols;
 setCols();
-$("#add-project").onclick = () => { $("#browser").showModal(); browse(); };
+$("#add-project").onclick = () => openBrowser("track");
+$("#new-project").onclick = () => { state.panel = "new"; writeHash(); render(); };
+$("#open-settings").onclick = () => { state.panel = "settings"; writeHash(); render(); };
+$("#settings-close").onclick = () => $("#settings").close();
+$("#creator-close").onclick = () => $("#creator").close();
+$("#settings").addEventListener("close", forgetPanel);
+$("#creator").addEventListener("close", forgetPanel);
+$("#new-go").onclick = () => createProject();
+$("#new-name").oninput = () => renderCreator();
+$("#new-name").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); createProject(); } };
+$("#new-parent").onclick = () => openBrowser("pick");
+// « Create it here » désigne le dossier COURANT du navigateur, pas celui qu'on
+// survole : c'est le dossier parent, celui dans lequel le projet va naître.
+$("#pick-here").onclick = () => {
+  newProject.parent = browseAt;
+  $("#browser").close();
+  if ($("#creator").open) renderCreator();
+};
 
 // Ouverte par l'app Mac (`?app=1`), la page porte sa propre barre de titre.
 if (new URLSearchParams(location.search).has("app")) document.body.classList.add("in-app");

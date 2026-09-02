@@ -19,6 +19,16 @@
     <div class="right">
       <span id="live" class="live" title="Live Claude sessions on this machine"></span>
       <span id="err" class="err"></span>
+      <button class="gear" id="open-settings" title="Settings" aria-label="Settings">
+        <!-- La roue est dessinée à la main : un cercle et huit dents radiales. Un
+             tracé de gear tout fait se déforme au petit format, celui-ci reste net
+             à 15 px parce que ses segments tombent sur des angles ronds. -->
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="8" cy="8" r="4.5"/>
+          <circle cx="8" cy="8" r="1.7"/>
+          <path class="teeth" d="M12.5 8h1.8M3.5 8H1.7M8 12.5v1.8M8 3.5V1.7M11.18 11.18l1.27 1.27M4.82 4.82 3.55 3.55M4.82 11.18l-1.27 1.27M11.18 4.82l1.27-1.27"/>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -28,6 +38,7 @@
         <img class="pe glyph" src="/brand/mark-128.png" alt=""><span class="pn">All projects</span>
       </button>
       <div id="projects"></div>
+      <button class="add" id="new-project">✦ New project</button>
       <button class="add" id="add-project">＋ Track a project</button>
     </aside>
 
@@ -46,11 +57,94 @@
 
   <dialog id="browser">
     <form method="dialog">
-      <h3>Track a project</h3>
+      <h3 id="browser-title">Track a project</h3>
       <div class="crumb" id="crumb"></div>
       <ul id="dirs" class="dirs"></ul>
-      <menu><button value="cancel">Close</button></menu>
+      <menu>
+        <button value="pick" id="pick-here" class="hidden" type="button">Create it here</button>
+        <button value="cancel">Close</button>
+      </menu>
     </form>
+  </dialog>
+
+  <!-- Les réglages. Deux choses seulement y vivent : à QUI l'app parle (le provider,
+       la connexion GitHub) et ce qui se déclenche quand elle crée un projet. Rien de
+       ce qui est ici ne s'applique aux projets ajoutés depuis la machine — c'est la
+       distinction que tout ce panneau sert à rendre visible. -->
+  <dialog id="settings" tabindex="-1" autofocus>
+    <div class="dhead flat">
+      <h3>Settings</h3>
+      <span class="grow"></span>
+      <button class="btn ghost" id="settings-close">Close</button>
+    </div>
+
+    <section class="sset">
+      <h4>Model provider</h4>
+      <div id="providers" class="prov"></div>
+      <label class="frow">
+        <span class="fl">Model</span>
+        <select id="set-model"></select>
+      </label>
+      <p class="fhint">Leave on <i>Default</i> to follow whatever the CLI picks.</p>
+    </section>
+
+    <section class="sset">
+      <h4>Connections</h4>
+      <div id="conn-github" class="conn"></div>
+      <label class="frow">
+        <span class="fl">New repositories</span>
+        <select id="set-visibility">
+          <option value="private">Private</option>
+          <option value="public">Public</option>
+        </select>
+      </label>
+      <label class="frow">
+        <span class="fl">Default branch</span>
+        <input id="set-branch" type="text" spellcheck="false" autocomplete="off">
+      </label>
+    </section>
+
+    <section class="sset">
+      <h4>When creating a project</h4>
+      <p class="fhint">
+        These run only for projects Pyra creates from scratch. Adding a folder that is
+        already on this machine stays exactly what it was — nothing is triggered.
+      </p>
+      <div id="create-opts" class="opts"></div>
+    </section>
+  </dialog>
+
+  <!-- Créer un projet de zéro. Le formulaire reprend les réglages comme défauts et
+       laisse les contredire POUR CE PROJET-CI, sans rien réécrire dans settings.json :
+       un choix ponctuel ne doit pas déplacer le réglage général. -->
+  <dialog id="creator" tabindex="-1" autofocus>
+    <div class="dhead flat">
+      <h3>New project</h3>
+      <span class="grow"></span>
+      <button class="btn ghost" id="creator-close">Close</button>
+    </div>
+
+    <label class="frow">
+      <span class="fl">Name</span>
+      <input id="new-name" type="text" placeholder="Skull King" autocomplete="off">
+    </label>
+    <label class="frow">
+      <span class="fl">Icon</span>
+      <input id="new-emoji" type="text" value="🌱" maxlength="8" autocomplete="off" class="narrow">
+    </label>
+    <div class="frow">
+      <span class="fl">Folder</span>
+      <button class="btn" id="new-parent" type="button"></button>
+    </div>
+    <p class="fhint" id="new-path"></p>
+
+    <div id="new-opts" class="opts"></div>
+
+    <menu>
+      <span class="err" id="new-error"></span>
+      <span class="grow"></span>
+      <button class="btn primary" id="new-go" type="button">Create</button>
+    </menu>
   </dialog>
 
   <!-- Les deux visionneuses du haut de page. Elles sont en LECTURE SEULE : le graphe

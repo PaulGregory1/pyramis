@@ -20,6 +20,8 @@ import { createTerminals, claudeBin } from "./terminals.mjs";
 import { propose } from "./generate.mjs";
 import * as G from "./graph.mjs";
 import * as R from "./repo.mjs";
+import * as F from "./forge.mjs";
+import * as S from "./settings.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -56,6 +58,11 @@ function registryPath() {
   }
   return file;
 }
+// Les réglages logent à côté du registre, et pour la même raison : un bundle signé ne
+// peut pas écrire chez lui. Un seul dossier pour les deux, sinon `PYRA_REGISTRY`
+// déplacerait la liste des projets en laissant les réglages derrière.
+S.init(path.join(path.dirname(REGISTRY), "settings.json"));
+
 const XTERM = path.join(__dir, "node_modules", "@xterm");
 
 // Exporté pour la coquille Electron : c'est le seul objet du serveur qui survive à
@@ -159,7 +166,15 @@ function startGeneration(proj) {
 
   (async () => {
     const before = M.read(proj.path, proj.name);
-    const proposal = await propose({ project: proj, items: M.items(before.blocks) });
+    // Le provider et le modèle viennent des réglages, pas d'une constante : c'est le
+    // seul endroit du serveur qui décide à quel binaire on parle pour générer.
+    const set = S.read();
+    const proposal = await propose({
+      project: proj,
+      items: M.items(before.blocks),
+      bin: claudeBin(),
+      model: set.model || process.env.PYRA_MODEL || "",
+    });
     // On RELIT le fichier après l'appel. Deux minutes ont passé : l'utilisateur a pu
     // cocher une étape, un Claude du projet a pu écrire dedans. Greffer sur la version
     // d'avant leur passerait dessus.
@@ -168,6 +183,7 @@ function startGeneration(proj) {
     M.write(after.file, blocks);
     if (after.legacy && fs.existsSync(after.legacy)) fs.rmSync(after.legacy);
     job.added = added;
+    if (added) autoSync(proj, "Milestones — generated");
   })()
     .catch((e) => { job.error = String(e.message || e).slice(0, 300); })
     .finally(() => { job.running = false; job.endedAt = Date.now(); });
@@ -190,11 +206,115 @@ function startGraph(proj) {
   graphs.set(proj.id, job);
 
   G.build(proj.path)
+    // La construction greffe un bloc dans le `CLAUDE.md` du dépôt : c'est un fichier
+    // que Pyra écrit, donc il entre dans la synchro — pour les projets qui l'ont
+    // demandée, et eux seuls. Le `graphify-out/`, lui, ne sera jamais commité : il
+    // est exclu via `.git/info/exclude`.
+    .then(() => autoSync(proj, "Knowledge graph"))
     .catch((e) => { job.error = String(e.message || e).slice(0, 300); })
     .finally(() => { job.running = false; job.endedAt = Date.now(); });
 
   return job;
 }
+
+/* ---------------------------------------------------- créer un projet de zéro */
+
+// Deux chemins d'entrée, et ils ne font PAS la même chose. Ajouter un dossier déjà
+// présent sur la machine l'inscrit au registre, point : il a son histoire, son
+// `CLAUDE.md`, ses commits en cours, et rien de ce que l'app sait faire ne doit lui
+// tomber dessus sans qu'on le demande. Créer un projet de zéro, au contraire, part
+// d'un dossier vide que l'app vient de faire naître : là, tout ce qui est réglé se
+// déclenche, puisqu'il n'y a rien à abîmer.
+//
+// Le travail est mené en TÂCHE DE FOND et son avancement se lit dans `/api/state`,
+// comme la génération et le graphe. `gh repo create` parle au réseau : tenir la
+// requête HTTP ouverte pendant ce temps ferait une interface figée sur un clic.
+const forges = new Map(); // projectId -> { running, steps: [...], error }
+
+function startForge(proj, opts) {
+  const job = { running: true, startedAt: Date.now(), endedAt: 0, steps: [], error: null };
+  forges.set(proj.id, job);
+
+  // Chaque geste est noté avec son résultat : l'interface montre la liste, et un
+  // échec au milieu n'efface pas ce qui a réussi avant lui. Un dépôt distant qui
+  // rate laisse un dossier, un dépôt git local et des commits — tout ce qui précède
+  // reste acquis, et le bouton de synchro finira le travail plus tard.
+  const step = async (name, fn) => {
+    const s = { name, ok: false, error: "", note: "" };
+    job.steps.push(s);
+    try {
+      const r = await fn();
+      s.ok = r?.ok !== false;
+      if (r?.error) s.error = r.error;
+      if (r?.note) s.note = r.note;
+    } catch (e) {
+      s.error = String(e.message || e).slice(0, 300);
+    }
+    return s.ok;
+  };
+
+  (async () => {
+    const dir = proj.path;
+    if (opts.git) {
+      const ok = await step("git init", () => F.init(dir, { branch: opts.branch }));
+      if (ok) await step("first commit", () => F.firstCommit(dir));
+      if (ok && opts.remote) {
+        await step("GitHub repository", async () => {
+          const r = await F.createRemote(dir, { name: proj.name, visibility: opts.visibility });
+          return { ...r, note: r.url || "" };
+        });
+      }
+    }
+    // Le graphe passe APRÈS le premier commit : `exclude()` écrit dans
+    // `.git/info/exclude`, qui n'existe pas tant que `git init` n'a pas eu lieu.
+    // Construit avant, le `graphify-out/` se retrouverait dans le premier commit.
+    if (opts.graph) {
+      await step("knowledge graph", async () => {
+        if (!G.available()) return { ok: false, error: "graphify not installed — run: uv tool install graphifyy" };
+        try {
+          await G.build(dir);
+          return { ok: true };
+        } catch (e) {
+          // Un projet qui vient de naître n'a que son README : `extract --code-only`
+          // n'y trouve AUCUN nœud et Graphify le dit comme une erreur. Ici c'en est
+          // une seulement en apparence — il n'y a pas encore de code, voilà tout.
+          // Le peindre en rouge apprendrait à l'utilisateur que la création rate
+          // toujours à moitié, et il cesserait de lire la liste.
+          if (/graph is empty|no nodes/i.test(String(e.message || e))) {
+            return { ok: true, note: "no code yet — build it from the project page once there is some" };
+          }
+          throw e;
+        }
+      });
+    }
+    // Le bloc greffé dans le `CLAUDE.md` et le `MILESTONES.md` de départ sont nés
+    // après le premier commit : on les y ajoute, sinon le dépôt distant montrerait
+    // un dossier à moitié rempli.
+    if (opts.git && opts.sync) {
+      await step("push", () => F.sync(dir, { message: "Project scaffolding", push: opts.remote }));
+    }
+  })()
+    .catch((e) => { job.error = String(e.message || e).slice(0, 300); })
+    .finally(() => { job.running = false; job.endedAt = Date.now(); });
+
+  return job;
+}
+
+/* ------------------------------------------------------------- synchro git */
+
+// Appelée après chaque écriture de Pyra dans un dépôt. Elle ne fait rien du tout si
+// le projet ne l'a pas demandée — c'est un drapeau posé à la CRÉATION, pas un réglage
+// global : un projet ajouté depuis la machine ne doit jamais voir l'app commiter chez
+// lui. Et elle ne bloque pas l'appelant : l'enregistrement d'une étape ne peut pas
+// dépendre de l'état du réseau.
+function autoSync(proj, message) {
+  if (!proj.auto?.sync) return;
+  F.sync(proj.path, { message })
+    .then((r) => { syncs.set(proj.id, { at: Date.now(), ...r }); })
+    .catch((e) => { syncs.set(proj.id, { at: Date.now(), ok: false, error: String(e.message || e).slice(0, 200) }); });
+}
+
+const syncs = new Map(); // projectId -> dernier résultat de synchro
 
 /* ------------------------------------------------------------------- état */
 
@@ -234,6 +354,11 @@ async function buildState() {
       // Relu du GRAPH_REPORT.md du dépôt à chaque tour : l'app n'a pas de copie de
       // cet état, et un graphe construit à la main hors de Pyra se voit donc aussi.
       graph: exists ? { ...G.state(p.path), job: graphs.get(p.id) || null } : null,
+      // Deux états tenus EN MÉMOIRE, donc gratuits : l'installation d'un projet qu'on
+      // vient de créer, et le résultat de la dernière synchro. Aucun sous-processus
+      // ici — la règle des quatre secondes vaut aussi pour git.
+      forge: forges.get(p.id) || null,
+      sync: syncs.get(p.id) || null,
       // `here` = ce que la barre latérale affiche sous le projet : les panneaux de
       // Pyra d'abord, puis les sessions ouvertes ailleurs sur la machine.
       sessions: agents.list
@@ -250,6 +375,10 @@ async function buildState() {
     // L'interface doit pouvoir dire « installe-le » plutôt que d'échouer en silence
     // sur chaque projet ajouté.
     graphify: G.available(),
+    // Un objet gardé en mémoire : le relire ici ne coûte rien, et l'interface a
+    // besoin des réglages à chaque rendu (le bouton « New project » n'existe que
+    // s'il y a de quoi le nourrir).
+    settings: S.read(),
     liveCount: agents.list.length,
     now: Date.now(),
   };
@@ -318,12 +447,105 @@ const server = http.createServer(async (req, res) => {
       if (projects.some((x) => x.path === target)) return json(res, 409, { error: "project already tracked" });
       const proj = { id: crypto.randomBytes(4).toString("hex"), name: (b.name || path.basename(target)).slice(0, 60), emoji: (b.emoji || "📁").slice(0, 8), path: target, order: projects.length };
       projects.push(proj); saveRegistry(projects);
-      // Un projet qu'on commence à suivre repart avec son graphe. C'est le seul geste
-      // automatique de l'app, et il est gratuit (`--code-only`, extraction locale) —
-      // sans quoi il faudrait le proposer, et personne ne cliquerait. `b.graph:false`
-      // laisse la porte de sortie à un appel qui n'en veut pas.
-      if (b.graph !== false && G.available()) startGraph(proj);
+      // Et c'est TOUT. Un dossier déjà présent sur la machine est inscrit au registre,
+      // rien de plus. L'app a construit un graphe d'office ici pendant un temps ; c'est
+      // fini, parce que ce dépôt-là existait avant elle : il a son histoire, son
+      // `CLAUDE.md` et peut-être un travail en cours, et un geste non demandé sur un
+      // dépôt qu'on n'a pas fabriqué est une intrusion, fût-il gratuit. Le bouton
+      // `◈ Build graph` de la page du projet reste la voie — c'est un clic.
+      // Les automatismes vivent sur l'AUTRE chemin : `POST /api/projects/new`.
+      // `b.graph === true` laisse malgré tout la porte ouverte à un appel qui le
+      // demande explicitement — le chemin « créer », et rien d'autre aujourd'hui.
+      if (b.graph === true && G.available()) startGraph(proj);
       return json(res, 200, proj);
+    }
+
+    // L'autre chemin : un projet qui n'existe pas encore. On fabrique le dossier, on
+    // l'inscrit, et le reste (git, dépôt distant, graphe, synchro) part en tâche de
+    // fond selon les réglages. La réponse ne l'attend pas.
+    if (req.method === "POST" && p === "/api/projects/new") {
+      const b = await readBody(req);
+      const set = S.read();
+
+      const name = String(b.name || "").trim().slice(0, 60);
+      if (!name) return json(res, 400, { error: "a project needs a name" });
+
+      // Le dossier parent est choisi par l'utilisateur dans le même navigateur de
+      // dossiers que « Track a project », et il est validé de la même façon : sous
+      // HOME, et existant. Le nom, lui, est nettoyé — un « ../ » dans un nom de
+      // projet ne doit pas décider d'où le dossier atterrit.
+      const parent = path.resolve(b.parent || path.join(HOME, "Documents"));
+      if (!parent.startsWith(HOME) || !fs.existsSync(parent)) return json(res, 400, { error: "invalid parent folder" });
+      const folder = F.folderName(b.folder || name);
+      if (!folder) return json(res, 400, { error: "invalid folder name" });
+      const target = path.join(parent, folder);
+      if (path.dirname(target) !== parent) return json(res, 400, { error: "invalid folder name" });
+
+      // On ne crée jamais par-dessus quelque chose. Un dossier qui existe déjà se
+      // suit avec « Track a project » — ici, l'app est censée partir de rien, et
+      // écraser serait exactement ce que les règles du projet interdisent.
+      if (fs.existsSync(target)) return json(res, 409, { error: "that folder already exists — use “Track a project” instead" });
+      if (projects.some((x) => x.path === target)) return json(res, 409, { error: "project already tracked" });
+
+      // Les réglages donnent les défauts ; le formulaire peut les contredire pour ce
+      // projet-ci seulement, sans rien réécrire dans `settings.json`.
+      const want = (k) => (typeof b[k] === "boolean" ? b[k] : set.create[k]);
+      const opts = {
+        git: want("git"),
+        remote: want("git") && want("remote"),
+        graph: want("graph"),
+        milestones: want("milestones"),
+        generate: want("generate"),
+        sync: want("git") && want("sync"),
+        visibility: set.github.visibility,
+        branch: set.github.defaultBranch,
+      };
+
+      await F.scaffold(target, { name, milestones: opts.milestones });
+
+      const proj = {
+        id: crypto.randomBytes(4).toString("hex"),
+        name, emoji: (b.emoji || "🌱").slice(0, 8), path: target, order: projects.length,
+        // La marque qui distingue les deux chemins pour toujours. C'est elle, et non un
+        // réglage global, qui autorise l'app à commiter dans ce dépôt : le projet est né
+        // ici, la synchro fait partie de ce qu'on a demandé en le créant. Un projet
+        // ajouté depuis la machine n'a pas ce drapeau et n'en recevra jamais un sans
+        // que l'utilisateur le pose lui-même.
+        created: true,
+        auto: { sync: opts.sync },
+      };
+      projects.push(proj); saveRegistry(projects);
+
+      startForge(proj, opts);
+      // La génération par le modèle est le seul geste payant de la liste, et elle est
+      // décochée par défaut. Elle part après le reste : sur un dépôt qui vient de
+      // naître, elle n'a de toute façon presque rien à lire.
+      if (opts.generate) startGeneration(proj);
+
+      return json(res, 202, proj);
+    }
+
+    /* ------------------------------------------------------------- réglages */
+
+    if (p === "/api/settings") {
+      if (req.method === "GET") return json(res, 200, { settings: S.read(), providers: S.PROVIDERS });
+      if (req.method === "PUT") {
+        const b = await readBody(req);
+        // Changer de provider invalide la version affichée : c'est un autre binaire.
+        if (b.provider && b.provider !== S.read().provider) S.forgetStatus();
+        return json(res, 200, { settings: S.write(b), providers: S.PROVIDERS });
+      }
+    }
+
+    // L'état des connexions, demandé à l'ouverture du panneau. Deux sous-processus,
+    // donc JAMAIS dans `/api/state` : cette route-ci est appelée sur un clic, pas
+    // quatre fois par minute pour six projets.
+    if (req.method === "GET" && p === "/api/connections") {
+      const set = S.read();
+      const status = await S.status(set.provider, (pv) => (pv.cli === "claude" ? claudeBin() : null), (bin, args) =>
+        new Promise((ok, ko) => execFile(bin, args, { timeout: 10_000 }, (e, out) => (e ? ko(e) : ok(out))))
+      );
+      return json(res, 200, { provider: status, github: await F.github() });
     }
 
     const projMatch = /^\/api\/projects\/([a-f0-9]+)$/.exec(p);
@@ -335,6 +557,10 @@ const server = http.createServer(async (req, res) => {
         if (typeof b.name === "string") proj.name = b.name.slice(0, 60);
         if (typeof b.emoji === "string") proj.emoji = b.emoji.slice(0, 8);
         if (Number.isInteger(b.order)) proj.order = b.order;
+        // La synchro se coupe et se rallume par projet. Elle ne s'allume que sur un
+        // geste explicite : c'est le seul réglage de l'app qui donne à une machine le
+        // droit d'écrire dans l'histoire d'un dépôt.
+        if (typeof b.sync === "boolean") proj.auto = { ...(proj.auto || {}), sync: b.sync };
         saveRegistry(projects);
         return json(res, 200, proj);
       }
@@ -360,6 +586,11 @@ const server = http.createServer(async (req, res) => {
       // Le contenu vient d'être réécrit sous le nouveau nom : l'ancien fichier ferait
       // désormais doublon, avec le risque qu'on l'édite en croyant agir sur l'app.
       if (r.legacy && fs.existsSync(r.legacy)) fs.rmSync(r.legacy);
+      // Le fichier vient de changer sur le disque : si ce projet est né dans Pyra et
+      // que la synchro est demandée, on le commite. En arrière-plan — cocher une
+      // étape ne peut pas attendre le réseau, et un push qui échoue ne doit pas
+      // faire croire que l'enregistrement a raté.
+      autoSync(proj, "Milestones");
       return json(res, 200, { ok: true, items: M.items(merged).map(pick) });
     }
 
@@ -374,7 +605,10 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
       const what = pageMatch[2];
 
-      if (what === "preview") return json(res, 200, await R.overview(proj.path));
+      // L'aperçu porte aussi l'état du distant (branche, avance, retard). Deux
+      // sous-processus de plus sur une route déjà à la demande, contre une ligne de
+      // plus dans l'étage du haut — et c'est là qu'on veut la lire.
+      if (what === "preview") return json(res, 200, { ...(await R.overview(proj.path)), remote: await F.remoteState(proj.path) });
 
       if (what === "git") {
         const limit = Math.min(600, Math.max(20, Number(url.searchParams.get("limit")) || 250));
@@ -402,6 +636,23 @@ const server = http.createServer(async (req, res) => {
       if (job?.running) return json(res, 409, { error: "graph build already running" });
       startGraph(proj);
       return json(res, 202, { ok: true });
+    }
+
+    // Pousser à la main ce que Pyra a écrit dans un dépôt. Le pendant manuel de la
+    // synchro automatique, et la porte de sortie pour les projets ajoutés depuis la
+    // machine : eux n'ont pas le drapeau `auto.sync`, mais rien n'interdit à
+    // l'utilisateur de demander le geste une fois, en connaissance de cause.
+    const syncMatch = /^\/api\/projects\/([a-f0-9]+)\/sync$/.exec(p);
+    if (syncMatch && req.method === "POST") {
+      const proj = byId(syncMatch[1]);
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
+      const b = await readBody(req);
+      // Celui-ci ATTEND son résultat : c'est un clic, l'utilisateur regarde. La
+      // synchro automatique, elle, ne bloque jamais son appelant.
+      const r = await F.sync(proj.path, { message: String(b.message || "Milestones").slice(0, 120), push: b.push !== false });
+      syncs.set(proj.id, { at: Date.now(), ...r });
+      return json(res, r.ok ? 200 : 400, r);
     }
 
     // Générer les étapes : le modèle lit le dépôt et propose des milestones, qui sont

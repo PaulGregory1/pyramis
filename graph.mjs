@@ -252,6 +252,12 @@ export async function build(dir, { signal } = {}) {
   if (!fs.existsSync(dir)) throw new Error("project folder not found");
 
   const opts = { cwd: dir, timeout: TIMEOUT, maxBuffer: 32 << 20, signal };
+  // L'exclusion est posée AVANT la construction, pas après. `extract` crée le
+  // `graphify-out/` puis peut échouer — un dépôt neuf sans code, par exemple, où il
+  // ne trouve aucun nœud. Le dossier reste alors sur le disque ; posée seulement en
+  // cas de succès, l'exclusion n'aurait pas eu lieu et l'utilisateur retrouverait un
+  // artefact de construction dans son prochain `git add`.
+  exclude(dir);
   try {
     await run(exe, ["extract", dir, "--code-only"], opts);
     await run(exe, ["cluster-only", dir, "--no-label", "--no-viz"], opts);
@@ -260,7 +266,6 @@ export async function build(dir, { signal } = {}) {
     if (e.killed) throw new Error("graphify ran past fifteen minutes");
     throw new Error(lastLines(e.stderr || e.stdout || e.message));
   }
-  exclude(dir);
   pointer(dir);
   return state(dir);
 }

@@ -118,7 +118,12 @@ function parseResult(text) {
   return list;
 }
 
-export async function propose({ project, items, model = process.env.PYRA_MODEL || "" }) {
+// `bin` vient des réglages (le provider) et `model` aussi. Le défaut reste « claude »
+// tel quel, pour qu'un appel sans contexte — un test, un script — marche encore ; mais
+// le serveur, lui, passe TOUJOURS le chemin résolu. Deux installations de claude
+// cohabitent souvent sur un Mac et le PATH d'une app lancée depuis le Finder ne dit pas
+// laquelle : c'est le même piège que celui documenté pour `claude agents --json`.
+export async function propose({ project, items, bin = "claude", model = process.env.PYRA_MODEL || "" }) {
   const prompt = await buildPrompt(project, items);
   const args = [
     "-p", prompt,
@@ -131,7 +136,7 @@ export async function propose({ project, items, model = process.env.PYRA_MODEL |
 
   let stdout;
   try {
-    stdout = await run("claude", args, { cwd: project.path, timeout: TIMEOUT, maxBuffer: 16 << 20, env: childEnv() });
+    stdout = await run(bin, args, { cwd: project.path, timeout: TIMEOUT, maxBuffer: 16 << 20, env: childEnv() });
   } catch (e) {
     if (e.code === "ENOENT") throw new Error("claude not found in PATH");
     if (e.killed) throw new Error("the model ran past five minutes");
