@@ -1338,6 +1338,9 @@ function renderTerms() {
 }
 
 function makePane(t) {
+  // Un shell n'a pas de tours de parole : sa vue lisible serait vide, et le bouton qui
+  // y mène, un bouton qui ne fait rien. Une seule expression pour les deux.
+  const canRead = t.kind === "claude";
   const root = el("div", "pane" + (t.alive ? "" : " dead"));
   const head = el("header");
   head.append(el("span", null, t.project.emoji));
@@ -1361,6 +1364,21 @@ function makePane(t) {
   paste.onclick = () => pasteSeed(t.id);
   head.append(paste);
 
+  // La bascule entre ce que Claude DIT et ce qu'il ÉCRIT. Elle n'existe que pour un
+  // panneau `claude` : un shell n'a pas de tours de parole, sa vue lisible serait vide.
+  // L'étiquette annonce ce qu'on va OBTENIR, pas l'état courant — un bouton qui dit où
+  // il mène se lit sans avoir à deviner où l'on est.
+  const read = el("button", null, "</>");
+  read.style.display = canRead ? "" : "none";
+  read.onclick = () => {
+    const p = panes.get(t.id);
+    if (!p) return;
+    // Demander le terminal, c'est le garder : l'app ne reprendra plus la main sur ce
+    // panneau tant qu'on ne lui aura pas redemandé la lecture.
+    p.pinRaw = p.reading;
+    setReading(t.id, !p.reading);
+  };
+
   // Le plein cadre a remplacé « une seule colonne » : les colonnes ne se choisissent
   // plus à la main, mais on veut toujours pouvoir n'en regarder qu'un.
   const solo = el("button", null, "⤢");
@@ -1373,11 +1391,15 @@ function makePane(t) {
     await api("DELETE", `/api/terminals/${t.id}`);
     refresh();
   };
-  head.append(solo, close);
+  head.append(read, solo, close);
   root.append(head);
 
+  // Deux surfaces, l'une posée sur l'autre — voir `.pbody` dans la feuille de style.
+  const body = el("div", "pbody");
   const host = el("div", "term");
-  root.append(host);
+  const digest = el("div", "digest");
+  body.append(host, digest);
+  root.append(body);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -1395,7 +1417,14 @@ function makePane(t) {
   term.loadAddon(fit);
   term.open(host);
 
-  const pane = { term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false, sized: false, sizeTimer: null, pasteBtn: paste, soloBtn: solo };
+  const pane = {
+    term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false,
+    sized: false, sizeTimer: null, pasteBtn: paste, soloBtn: solo,
+    // La vue lisible : `canRead` dit si elle a un sens ici, `reading` si elle est
+    // devant, `pinRaw` si c'est l'utilisateur qui a demandé le terminal — auquel cas
+    // l'app ne le lui reprend plus. `dirty` évite de relire le tampon pour rien.
+    digest, readBtn: read, canRead, reading: false, pinRaw: false, dirty: true,
+  };
   panes.set(t.id, pane);
 
   const ws = new WebSocket(`ws://${location.host}/pty?id=${t.id}`);
@@ -1410,6 +1439,7 @@ function makePane(t) {
       term.write(m.d);
       pane.lastData = Date.now();
       pane.booted = true;
+      pane.dirty = true;
       // Une queue de sortie débarrassée des codes ANSI : c'est le seul moyen de
       // savoir si un dialogue est à l'écran plutôt que l'invite de saisie.
       pane.tail = (pane.tail + m.d.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")).slice(-3000);
@@ -1419,6 +1449,10 @@ function makePane(t) {
   term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ t: "in", d })));
   new ResizeObserver(() => resize(t.id)).observe(host);
   dropTarget(root, t.id);
+  zoomTarget(root, t.id);
+  // Un panneau naît en LECTURE : c'est l'état qu'on veut neuf fois sur dix, et le
+  // premier dialogue de `claude` le renverra de lui-même au terminal (plus bas).
+  setReading(t.id, canRead);
 
   return root;
 }
@@ -1537,6 +1571,11 @@ function typeInto(id, text) {
   const pane = panes.get(id);
   if (!pane || pane.ws?.readyState !== 1) return;
   pane.ws.send(JSON.stringify({ t: "in", d: `\x1b[200~${text}\x1b[201~` }));
+  // Ce qu'on vient de déposer attend une touche Entrée qui n'appartient qu'à
+  // l'utilisateur : il faut donc qu'il le VOIE. Le panneau passe au vrai terminal et y
+  // reste — le rendre à la vue lisible cacherait l'invite qu'on lui demande de valider.
+  pane.pinRaw = true;
+  setReading(id, false);
   pane.term.focus();
 }
 
@@ -1544,11 +1583,248 @@ setInterval(() => {
   const now = Date.now();
   for (const [id, pane] of panes) {
     if (pane.pasteBtn) pane.pasteBtn.style.display = pane.text ? "" : "none";
+    const asking = pane.booted && BLOCKING.test(pane.tail.slice(-1200));
+
+    // Une question à l'écran n'est PAS du langage : c'est un menu, et une frappe y vaut
+    // réponse. La vue lisible n'en montrerait rien — elle ne connaît que les tours de
+    // parole — et l'utilisateur attendrait devant une page muette un `claude` qui,
+    // lui, attend une réponse. Le panneau rend donc le vrai terminal de lui-même, et y
+    // revient quand la question est partie. Deux gardes à cet automatisme : il ne
+    // touche pas à un panneau dont on a demandé le terminal à la main (`pinRaw`), ni à
+    // celui où l'on est en train de taper.
+    if (pane.canRead && !pane.pinRaw) {
+      if (asking && pane.reading) setReading(id, false);
+      else if (!asking && !pane.reading && now - pane.lastData > 1500 && document.activeElement !== pane.term.textarea) setReading(id, true);
+    }
+
     if (!pane.seed || !pane.booted || now - pane.lastData < 900) continue;
-    if (BLOCKING.test(pane.tail.slice(-1200))) continue; // un dialogue attend une réponse
+    if (asking) continue; // un dialogue attend une réponse
     pasteSeed(id);
   }
 }, 300);
+
+/* ------------------------------------------- la vue lisible d'un panneau */
+
+// Un panneau montre deux choses du même flux, et l'une est POSÉE sur l'autre.
+//
+// Le terminal est la vérité : tout ce que `claude` écrit y est, à la colonne près.
+// Mais ce n'est pas ce qu'on vient lire quand on tient huit sessions de front. On
+// vient lire ce que Claude DIT — pas les quarante lignes du `Read` qu'il a fait pour
+// pouvoir le dire. D'où cette seconde surface : les phrases en clair, et chaque outil
+// réduit à une ligne qui s'ouvre au clic. Rien n'est jeté, tout est replié.
+//
+// Elle est DÉRIVÉE, jamais reçue : aucun octet de plus ne transite, on relit le tampon
+// que xterm tient déjà. C'est la seule façon honnête de s'y prendre — le flux brut est
+// plein de déplacements de curseur et de réécritures en place (le CLI redessine son bas
+// de page à chaque image), là où le tampon est le texte une fois POSÉ. La différence
+// n'est pas théorique : un analyseur branché sur le flux verrait l'invite se réécrire
+// quarante fois par seconde et prendrait chaque brouillon pour une phrase.
+//
+// Et c'est une LECTURE : on n'y tape pas. Le jour où le repérage se trompe, `⌨` rend
+// le vrai terminal en un clic et rien n'a été perdu — c'est ce qui autorise une
+// heuristique ici, alors qu'on n'en tolérerait aucune dans `milestones.mjs`.
+
+// Le rond que le CLI pose devant chaque tour dépend du système : ⏺ sur macOS, ●
+// ailleurs. Les deux sont reconnus, sinon la vue serait pleine sur un Mac et vide
+// partout ailleurs — et personne ne saurait pourquoi. L'espace qui suit peut être
+// insécable : le CLI en pose partout dans sa mise en page.
+const D_BULLET = /^[⏺●][ \u00a0]/;
+// Le retour d'un outil, toujours en retrait sous son appel : « ⎿ ».
+const D_RESULT = /^[ \u00a0]*⎿[ \u00a0]*/;
+// Un appel d'outil s'écrit `Nom(argument)` — `Read(app.js)`, `mcp__serveur__outil(…)`.
+const D_TOOL = /^([A-Za-z][\w.-]*(?:__[\w.-]+)*)\((.*)$/;
+// Ce qu'on relit à chaque passage. Le tampon garde huit mille lignes ; les relire
+// toutes, plusieurs fois par seconde, pour huit panneaux, coûterait plus cher que tout
+// le reste de l'app réuni. Au-delà de cette fenêtre le brut reste là — c'est lui la
+// mémoire, la lecture n'est qu'une fenêtre sur le présent.
+const D_LINES = 1200;
+const D_BLOCKS = 120;
+
+// Le CLI coupe ses phrases à la largeur du panneau, avec de VRAIES fins de ligne.
+// Les recoller à l'aveugle recollerait aussi les listes et les blocs de code. On ne
+// recolle donc qu'une ligne pleine — elle a été coupée parce qu'elle touchait le bord —
+// suivie d'une ligne qui n'ouvre ni puce, ni titre, ni retrait.
+function unwrap(lines, width) {
+  const out = [];
+  for (const line of lines) {
+    const prev = out.length ? out[out.length - 1] : null;
+    const cut = prev !== null && prev.trim() !== "" && prev.length >= width - 14;
+    const opens = /^\s|^[-*•>#|`+]|^\d+[.)]\s/.test(line);
+    if (cut && line.trim() && !opens) out[out.length - 1] = prev + " " + line.trim();
+    else out.push(line);
+  }
+  return out.join("\n");
+}
+
+// Le tampon de xterm, relu en tours de parole. Un bloc s'ouvre sur un rond en marge et
+// se ferme à la première ligne qui n'est ni vide ni en retrait : c'est exactement la
+// mise en page du CLI, et c'est ce qui fait que le cadre de saisie du bas — dont les
+// lignes commencent par « │ » à la colonne zéro — ne peut jamais passer pour une phrase.
+function readBlocks(term) {
+  const buf = term.buffer.active;
+  const rows = [];
+  for (let i = Math.max(0, buf.length - D_LINES); i < buf.length; i++) {
+    const line = buf.getLine(i);
+    const text = line ? line.translateToString(true).replace(/\u00a0/g, " ") : "";
+    // Une ligne trop longue pour l'écran occupe deux lignes de tampon. Les laisser
+    // séparées couperait un bloc en deux à chaque phrase un peu longue.
+    if (line && line.isWrapped && rows.length) rows[rows.length - 1] += text;
+    else rows.push(text);
+  }
+
+  const blocks = [];
+  let cur = null;
+  const close = () => {
+    if (!cur) return;
+    while (cur.body.length && !cur.body[cur.body.length - 1].trim()) cur.body.pop();
+    if (cur.head || cur.body.length) blocks.push(cur);
+    cur = null;
+  };
+
+  for (const row of rows) {
+    const bare = row.trimStart();
+    const pad = row.length - bare.length;
+
+    if (pad <= 1 && D_BULLET.test(bare)) {
+      close();
+      const head = bare.slice(2).trim();
+      const m = head.match(D_TOOL);
+      cur = m
+        ? { kind: "tool", head, name: m[1], args: m[2].replace(/\)$/, ""), body: [] }
+        : { kind: "say", head, body: [] };
+      continue;
+    }
+    if (cur && (!row.trim() || pad >= 2)) {
+      // Un retour d'outil sous un tour qu'on avait pris pour une phrase : c'est un
+      // outil SANS parenthèses (« Update Todos »). Le « ⎿ » tranche mieux que le nom.
+      if (cur.kind === "say" && D_RESULT.test(row)) cur.kind = "tool";
+      cur.body.push(row.slice(Math.min(pad, 2)));
+      continue;
+    }
+    close();
+    // Ce que l'utilisateur a envoyé. Le CLI le repose dans le fil en « > … » à la
+    // colonne zéro ; l'invite en cours, elle, vit dans un cadre et commence par « │ ».
+    const said = row.match(/^>[ \u00a0]+(.*\S)/);
+    if (said) cur = { kind: "you", head: said[1], body: [] };
+  }
+  close();
+  return blocks.slice(-D_BLOCKS);
+}
+
+const D_EMPTY = "Nothing said yet. This view keeps only what Claude says — every tool it runs folds into one line you can click open. Use </> for the raw terminal, which is where you type.";
+
+function blockNode(b, width) {
+  if (b.kind === "say") return el("div", "rsay", unwrap([b.head].concat(b.body), width));
+
+  if (b.kind === "you") {
+    const n = el("div", "ryou");
+    n.append(el("span", "rmark", "›"), el("span", null, unwrap([b.head].concat(b.body), width)));
+    return n;
+  }
+
+  const n = el("div", "rtool");
+  const head = el("button", "rhead");
+  head.type = "button";
+  head.title = "Show what this did";
+  head.append(el("span", "rcar", "▸"), el("b", null, b.name || b.head));
+  if (b.args) head.append(el("span", "rarg", b.args));
+  const first = b.body.find((l) => l.trim());
+  if (first) head.append(el("span", "rsum", first.replace(D_RESULT, "").trim()));
+
+  // Le détail est le TERMINAL, pas une paraphrase : les lignes telles qu'elles ont été
+  // écrites. Une vue lisible qui réécrirait ce qu'elle replie ne serait plus un repli,
+  // ce serait une deuxième version des faits.
+  const det = el("pre", "rdet", [b.head].concat(b.body).join("\n"));
+  det.hidden = true;
+  head.onclick = (e) => {
+    e.stopPropagation(); // le clic OUVRE l'outil ; il n'agrandit pas le panneau
+    det.hidden = !det.hidden;
+    n.classList.toggle("open", !det.hidden);
+  };
+  n.append(head, det);
+  return n;
+}
+
+// Le rendu est réconcilié bloc à bloc, jamais reconstruit : un bloc dont la signature
+// n'a pas bougé garde son nœud, donc son repli ouvert et sa sélection. Tout refaire à
+// chaque passage refermerait sous les doigts l'outil qu'on vient d'ouvrir.
+function paintDigest(id) {
+  const pane = panes.get(id);
+  if (!pane || !pane.reading || pane.root.hidden) return;
+  const host = pane.digest;
+  const blocks = readBlocks(pane.term);
+
+  if (!blocks.length) {
+    if (host.dataset.state !== "none") {
+      host.replaceChildren(el("p", "rnone", D_EMPTY));
+      host.dataset.state = "none";
+    }
+    return;
+  }
+  if (host.dataset.state === "none") { host.replaceChildren(); host.dataset.state = ""; }
+
+  // « Collé en bas » se mesure AVANT d'écrire : un fil qu'on suit doit continuer à
+  // défiler tout seul, et un fil qu'on a remonté pour relire ne doit pas sauter.
+  const stick = host.scrollHeight - host.scrollTop - host.clientHeight < 30;
+  const width = Math.max(40, pane.term.cols - 6);
+
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const sig = b.kind + "\n" + b.head + "\n" + b.body.join("\n");
+    const at = host.children[i];
+    if (at && at.dataset.sig === sig) continue;
+    const node = blockNode(b, width);
+    node.dataset.sig = sig;
+    if (at) host.replaceChild(node, at);
+    else host.append(node);
+  }
+  while (host.children.length > blocks.length) host.lastChild.remove();
+
+  if (stick) host.scrollTop = host.scrollHeight;
+}
+
+// Passer d'une surface à l'autre. Le terminal n'est jamais démonté ni redimensionné —
+// il reste sous la vue, à sa taille : c'est ce qui rend la bascule gratuite.
+function setReading(id, on) {
+  const pane = panes.get(id);
+  if (!pane || !pane.canRead) return;
+  pane.reading = on;
+  pane.root.classList.toggle("reading", on);
+  if (pane.readBtn) {
+    pane.readBtn.textContent = on ? "</>" : "☰";
+    pane.readBtn.title = on ? "Show the raw terminal — that is where you type" : "Back to the readable view";
+  }
+  if (on) paintDigest(id);
+  // Le rendu de xterm peut avoir sommeillé sous la vue : on le redemande en entier.
+  else pane.term.refresh(0, Math.max(0, pane.term.rows - 1));
+}
+
+// Cliquer un panneau l'agrandit, et le rend. « Cliquer » veut dire : pas un bouton, pas
+// une ligne d'outil (elle s'ouvre), pas le détail déplié (on y lit), pas le terminal —
+// il a ses propres clics, on y place un curseur et on y sélectionne. Et pas la fin
+// d'une sélection : relâcher une phrase surlignée n'est pas un clic.
+function zoomTarget(root, id) {
+  root.addEventListener("click", (e) => {
+    if (e.target.closest("button, .term, .rdet")) return;
+    const sel = getSelection();
+    if (sel && !sel.isCollapsed) return;
+    state.solo = state.solo === id ? "" : id;
+    layout();
+  });
+}
+
+// Le tampon ne se relit pas à chaque octet reçu : `claude` en écrit des milliers par
+// seconde quand il déroule un fichier, et la vue n'a pas à suivre la vitesse du flux —
+// elle a à suivre celle de la lecture. Ce rendez-vous ne travaille que pour les
+// panneaux qu'on regarde vraiment ; un panneau caché garde son `dirty` et se rattrape
+// à sa réapparition.
+setInterval(() => {
+  for (const [id, pane] of panes) {
+    if (!pane.reading || !pane.dirty || pane.root.hidden) continue;
+    pane.dirty = false;
+    paintDigest(id);
+  }
+}, 400);
 
 /* ---------------------------------------------------- la grille se scinde seule */
 
@@ -1608,7 +1884,10 @@ function layout() {
 
   for (const [id, pane] of panes) {
     pane.root.hidden = !!state.solo && id !== state.solo;
+    pane.root.classList.toggle("solo", id === state.solo);
     if (pane.soloBtn) pane.soloBtn.textContent = id === state.solo ? "⤡" : "⤢";
+    // Un panneau qui reparaît a manqué les relectures faites pendant qu'il était caché.
+    pane.dirty = true;
   }
 
   const holes = cols * rows - shown;
