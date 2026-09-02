@@ -1,4 +1,4 @@
-<!-- graph-baseline: 064fec4 -->
+<!-- graph-baseline: 5c761cc -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -368,6 +368,35 @@ leur propre sens du clic : un bouton, et le terminal (on y place un curseur, on 
 sélectionne). Troisième garde, invisible mais nécessaire : relâcher une phrase surlignée
 n'est pas un clic — sans le test sur la sélection, sélectionner du texte dans un panneau
 l'agrandissait sous les doigts.
+
+## Les deux vues, et le chemin entre elles
+
+Les onglets « Milestones » et « Terminals » sont deux vues d'un même écran : la barre
+latérale les surplombe et ne disparaît jamais. C'est ce qui fait que **la navigation
+doit être câblée dans les DEUX sens**, et le second manquait.
+
+`focusPane()` allait de la page d'un projet à son panneau — il appelle `showView("terms")`
+avant de faire défiler. Le retour, lui, n'existait pas : la barre latérale se contentait
+d'un `state.selected = p.id; render()`. Depuis la grille des terminaux, `#view-board`
+porte `.hidden`, donc ce rendu peignait une page que personne ne voyait. Le seul signe
+du clic était la surbrillance qui se déplaçait dans la barre latérale — l'app avait
+exactement l'air cassée. D'où `showProject(id)`, le pendant exact de `focusPane(id)` :
+il bascule sur la vue avant de rendre. Les trois entrées y passent (un projet de la
+barre latérale, « All projects », le bouton « Open » d'une carte de la vue d'ensemble),
+et la règle à tenir est simple — **un geste qui change de projet change aussi de vue**.
+
+**L'identité d'un panneau est le chemin vers son projet.** L'émoji et le nom, dans
+l'en-tête, sont un bouton (`.goproj`) qui mène à la page du projet, donc à son aperçu.
+La grille montre huit dépôts à la fois et rien d'autre : sans lui, relire le README de
+celui qu'on regarde demandait de changer d'onglet puis de retrouver son nom dans la
+barre latérale. Il n'est pas peint comme « ⤢ » et « ✕ » — il reste à l'encre, et seul
+le fond au survol dit qu'il mène quelque part ; en faire un troisième bouton d'action
+aurait laissé l'en-tête sans identité. Étant un bouton, il n'agrandit pas le panneau :
+c'est la première exception de `zoomTarget()`, et elle joue ici sans qu'on ait rien à
+ajouter. Son `min-width: 0` n'est pas décoratif : un item flex ne descend jamais sous la
+largeur de son contenu sans lui, et un nom de session un peu long poussait « ⤢ » et
+« ✕ » hors du cadre au lieu de se couper aux points de suspension. Mesuré à sept
+panneaux dans une fenêtre de 1100 px, pas deviné.
 
 ## Déposer une image dans un panneau
 
@@ -867,6 +896,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer la façon de rejoindre une session | `server.mjs` (`POST /api/attach`), `public/app.js` (`joinSession`) |
 | Toucher à la hiérarchie milestone/étape | `milestones.mjs` (`link`, `insertionPoint`), `public/app.js` (`mains`, `kids`, `subRow`) |
 | Modifier la barre latérale | `public/app.js` (`renderSide`), `public/style.css` (`#side`, `.sessions`) |
+| Toucher au passage d'une vue à l'autre | `public/app.js` (`showProject`, `focusPane`, `showView`) — les deux sens, jamais un seul |
 | Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
 | Toucher au repli d'un milestone | `public/app.js` (`isOpen`, `setOpen`, `msRow`), clé `pyra.open` du `localStorage` |
 | Retoucher la force dirigée du graphe | `public/app.js` (`simulate`, bloc des constantes) — le résultat ne se juge qu'à l'écran |
