@@ -1351,6 +1351,27 @@ function renderTerms() {
   if (moved) layout();
 }
 
+// Le peintre du terminal. Par défaut, xterm dessine chaque cellule en DOM : un coup de
+// molette repasse par la mise en page du navigateur, ligne par ligne, et pour CHAQUE
+// panneau qui reçoit du texte en même temps. C'est ce qui hache le défilement là où
+// Terminal.app glisse — lui peint sur le GPU. L'addon WebGL fait la même chose ici :
+// même terminal, même thème, même feuille de style ; seul le peintre change.
+//
+// Deux façons de le perdre, et les deux sont prévues. Le navigateur ne tient qu'une
+// poignée de contextes WebGL à la fois — la grille se scindant toute seule, on peut
+// ouvrir assez de panneaux pour qu'il retire le plus ancien — et une machine (ou un
+// Chrome headless de capture) peut n'en donner aucun. Dans les deux cas on relâche
+// l'addon : xterm revient au rendu DOM de lui-même. Un panneau qui défile moins bien
+// vaut mieux qu'un panneau noir.
+function gpu(term) {
+  if (!window.WebglAddon) return;
+  try {
+    const addon = new WebglAddon.WebglAddon();
+    addon.onContextLoss(() => addon.dispose());
+    term.loadAddon(addon);
+  } catch { /* pas de WebGL ici : le rendu DOM reste, et il suffit */ }
+}
+
 function makePane(t) {
   // Un shell n'a pas de tours de parole : sa vue lisible serait vide, et le bouton qui
   // y mène, un bouton qui ne fait rien. Une seule expression pour les deux.
@@ -1430,6 +1451,7 @@ function makePane(t) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(host);
+  gpu(term);
 
   const pane = {
     term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false,

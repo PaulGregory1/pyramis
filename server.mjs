@@ -451,6 +451,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && p === "/vendor/xterm.js") return serveFile(res, path.join(XTERM, "xterm/lib/xterm.js"));
     if (req.method === "GET" && p === "/vendor/xterm.css") return serveFile(res, path.join(XTERM, "xterm/css/xterm.css"));
     if (req.method === "GET" && p === "/vendor/addon-fit.js") return serveFile(res, path.join(XTERM, "addon-fit/lib/addon-fit.js"));
+    if (req.method === "GET" && p === "/vendor/addon-webgl.js") return serveFile(res, path.join(XTERM, "addon-webgl/lib/addon-webgl.js"));
 
     if (req.method === "GET" && p === "/api/state") return json(res, 200, await buildState());
 

@@ -150,7 +150,7 @@ while IFS= read -r PKG; do
   cp -R "$PKG" "$DEST/$REL"
 done < <(npm ls --omit=dev --parseable --all 2>/dev/null || true)
 
-for MOD in node-pty ws @xterm/xterm @xterm/addon-fit; do
+for MOD in node-pty ws @xterm/xterm @xterm/addon-fit @xterm/addon-webgl; do
   [ -d "$DEST/node_modules/$MOD" ] \
     || { echo "$MOD n'a pas été copié — lance : npm install" >&2; exit 1; }
 done
