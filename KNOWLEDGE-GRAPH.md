@@ -1,4 +1,4 @@
-<!-- graph-baseline: c1c3aea -->
+<!-- graph-baseline: 651c86d -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -149,7 +149,8 @@ Trois conséquences à connaître avant de toucher au code :
 
 ## Les réglages, et ce qu'ils ne contiennent pas
 
-Deux choses seulement : à QUI l'app parle, et ce qu'elle déclenche en créant.
+Trois choses : à QUI l'app parle, ce que Claude demande avant d'agir dans un panneau,
+et ce qu'elle déclenche en créant.
 
 Le provider est une **table** (`PROVIDERS` dans `settings.mjs`), pas une suite de
 `if`. Claude est seul aujourd'hui ; le jour où un second arrive, il s'ajoute en ligne
@@ -170,6 +171,41 @@ Un seul automatisme dépense, la génération par le modèle, et il est le seul 
 par défaut. `test/settings.test.mjs` le vérifie explicitement : si ce test tombe un
 jour, c'est qu'on a coché une dépense à la place de quelqu'un.
 
+## Le mode de permission, et pourquoi il est en bypass
+
+C'est le seul réglage de Pyra qui décide de ce que Claude **fait**, et il est réglé
+sur `bypassPermissions` par défaut. Ce n'est pas une négligence, c'est la raison
+d'être de l'app : tenir N sessions en parallèle. Un mur de questions par panneau,
+huit fois, est exactement ce qu'on fuyait — l'utilisateur ne serait plus qu'un
+valideur. Le réglage est donc en toutes lettres dans les réglages, avec son étiquette
+« no questions asked », pour que celui qui veut l'inverse le trouve du premier coup.
+
+**Pyra ne réimplémente rien.** Le CLI porte ce réglage lui-même ; un panneau EST un
+`claude` complet, on lui passe un drapeau au lancement et c'est lui qui arbitre. C'est
+toute la différence avec ApplyStudio, qui intercepte chaque outil par `canUseTool`
+parce qu'il tient une `query()` du SDK — d'où ses trois modes maison (bypass / auto /
+ask) là où Pyra expose les six du CLI, tels quels.
+
+**`bypassPermissions` a un drapeau à lui, et les deux formes ne s'échangent pas.**
+`--permission-mode bypassPermissions` est REFUSÉ au lancement (« Cannot set permission
+mode to bypassPermissions because the session was not launched with
+`--dangerously-skip-permissions` ») — lu dans le binaire du CLI, pas deviné. Et le mode
+manuel ne passe rien du tout : le CLI l'appelle « manual » en ligne de commande alors
+que son nom interne est « default », donc ne rien dire est la seule forme sûre.
+`test/settings.test.mjs` verrouille les deux.
+
+**Un seul endroit compose la ligne `claude`** : `cliCommand()` dans `settings.mjs`. Le
+panneau ordinaire et la reprise d'une session (`--resume --fork-session`) y passent
+tous les deux, sinon un panneau sur deux demanderait la permission et personne ne
+saurait pourquoi. `claude attach`, lui, se rebranche sur un process DÉJÀ lancé : lui
+passer un drapeau de lancement n'aurait aucun sens, et il n'en reçoit pas.
+
+**Le mode est figé à la NAISSANCE du panneau**, gardé dans le terminal (`t.mode`) et
+écrit dans son en-tête. Changer le réglage ne retourne pas un `claude` qui tourne ;
+l'afficher par panneau est la seule façon honnête de le dire. Un seul mode dépense —
+`auto`, où un classifieur répond aux questions — et il est étiqueté comme la
+génération l'est.
+
 ## La synchro git, et la seule forme qui la rende sûre
 
 `git commit -m … -- MILESTONES.md CLAUDE.md` commite la version DISQUE de ces
@@ -188,6 +224,39 @@ entrer dans un commit même par accident.
 branche divergée : le commit est fait, il attend. L'interface le dit ainsi, sans quoi
 l'utilisateur referait le geste en croyant avoir tout raté.
 
+## La consommation du forfait, et pourquoi elle ne coûte rien
+
+Deux fenêtres, parce qu'il y a deux questions et qu'elles n'ont pas la même réponse :
+« est-ce que je viens d'épuiser ma session de 5 h ? » — ça revient dans l'heure, on va
+boire un café — et « il me reste combien cette semaine ? » — ça ne revient pas avant des
+jours, il faut lever le pied. N'en montrer qu'une laisse sans réponse une fois sur deux.
+Pyra tient N sessions Claude de front : c'est exactement l'app où la question se pose.
+
+**La lecture ne coûte pas un token, et c'est ce qui l'autorise à tourner seule.** On
+ouvre un `claude` en mode flux et on lui pose une REQUÊTE DE CONTRÔLE (`get_usage`) :
+aucun tour de modèle, rien d'envoyé au modèle. Même règle que pour le graphe — ce que
+l'app déclenche d'elle-même doit être gratuit. Gratuit en tokens ne veut pas dire
+gratuit tout court : c'est un sous-processus de deux secondes, d'où le cache de deux
+minutes de `usage.mjs`, l'interdiction de mettre cette lecture dans `/api/state`, et
+l'arrêt du rythme côté client quand l'onglet passe à l'arrière-plan.
+
+**Le compte nomme lui-même ses fenêtres** (`rate_limits.limits` : espèce, pourcentage,
+remise à zéro, modèle concerné). C'est la source à préférer sur les clés historiques —
+une formule nouvelle y apparaît sans qu'on rouvre le fichier. Les clés restent en repli,
+pour le jour où le champ disparaîtrait ; `test/usage.test.mjs` tient les deux chemins.
+
+**C'est un CONFORT, et le protocole n'est pas gravé.** Binaire absent, sous-commande
+disparue, champ renommé : tout rend `null`, l'écran dit « indisponible », et pas un
+geste de l'app n'en dépend. Aucun secret ne passe par là non plus — le jeton OAuth
+appartient au CLI, qui interroge le compte avec ; Pyra ne voit que des pourcentages.
+
+**Deux montages, un seul rendu.** La barre latérale porte la version courte (on veut
+le chiffre sans rien ouvrir, comme l'avancement d'un projet), le panneau la version
+longue avec la formule et les dates. Deux rendus finiraient par ne plus dire la même
+chose du même chiffre. Et la couleur n'est PAS le dégradé : un forfait qui se remplit
+n'est pas un avancement, le peindre en violet le lirait comme une réussite. Encre
+jusqu'à 70 %, puis `--warn`, puis `--blocked` — la couleur ne vient qu'avec l'état.
+
 ## Les fichiers
 
 | Fichier | Rôle |
@@ -200,6 +269,7 @@ l'utilisateur referait le geste en croyant avoir tout raté.
 | `repo.mjs` | Ce que le dépôt dit de lui-même : README, langages, branche, et l'histoire git mise en voies. Git en LECTURE seule. Aucune dépendance au reste. |
 | `forge.mjs` | Le miroir en ÉCRITURE de `repo.mjs` : `git init`, premier commit, `gh repo create`, et la synchro. Seul module qui puisse modifier l'histoire d'un dépôt. |
 | `settings.mjs` | Les réglages : le provider (table, Claude seul aujourd'hui) et ce qui se déclenche à la création d'un projet. Vit hors du dépôt, à côté du registre. |
+| `usage.mjs` | Ce que le forfait a consommé : une requête de CONTRÔLE sur un `claude` jetable, donc zéro token. Cache de deux minutes. |
 | `terminals.mjs` | Les pseudo-terminaux. Un `claude` ou un shell réel par panneau. |
 | `public/app.js` | Toute l'UI. Pas de framework, pas d'étape de build. |
 | `electron/main.js` | La coquille Mac : une fenêtre, un menu, un ⌘Q. Importe `server.mjs`, ne décide rien. |
@@ -237,12 +307,66 @@ appartient au dépôt, l'état d'un pli n'y a rien à faire. Sans choix explicit
 est en cours ou bloqué s'ouvre — c'est ce qu'on vient voir. Le registre des plis est
 borné à 400 entrées, sinon un milestone supprimé y laisserait sa clé pour toujours.
 
+## La grille des terminaux, et le « ＋ »
+
+**Le nombre de colonnes n'est plus un réglage.** « Tous visibles » est une contrainte
+géométrique, pas une préférence : `gridShape()` essaie chaque découpe possible et garde
+celle dont les cellules ressemblent le plus à un terminal — plus larges que hautes
+(`CELL_AR = 1.6`) — en pénalisant celles qui passent sous le lisible et, un peu, celles
+qui laissent des trous. Deux panneaux se rangent donc côte à côte dans une fenêtre
+large et l'un sous l'autre dans une fenêtre étroite, sans que personne n'ait rien
+choisi. La borne basse (`CELL_MIN_H`) est une vraie borne, posée en `minmax` : au-delà
+d'une quinzaine de panneaux la grille finit par défiler, ce qui vaut mieux que vingt
+bandes de trois lignes.
+
+**Le « ＋ » en pointillés ne se montre que s'il RESTE une case.** Trois panneaux dans
+une grille 2×2 laissent un trou : il le remplit. Quatre panneaux n'en laissent pas, et
+un bouton de plus pousserait tout le monde d'un rang — les panneaux rétréciraient à
+cause de lui. Le « ＋ » de la barre du haut couvre ce cas-là et ne coûte aucune case.
+Grille vide, c'est la même case qui porte le mot d'accueil : un seul endroit dit
+« aucun terminal ».
+
+**Le « ＋ » ne peut pas deviner le projet**, puisque la grille tient les panneaux de
+tous. D'où un dialogue qui ne pose que cette question — sauf s'il n'y a qu'un projet
+suivi, où la question n'en est pas une. Il a une adresse (`#s=term`) comme les deux
+autres panneaux, pour la même raison qu'eux.
+
+**`⤢` est devenu un plein cadre**, faute de colonnes à réduire. Le panneau seul à
+l'écran cache les autres (`[hidden]`, dit deux fois : un `display:flex` ignore
+l'attribut) et la case du « ＋ » disparaît avec eux.
+
+## Déposer une image dans un panneau
+
+Trois choses, et la première rendait le geste impossible : **sans `preventDefault`, le
+navigateur QUITTE la page** pour afficher le fichier lâché. L'app disparaît d'un coup —
+les terminaux survivent côté serveur, mais personne ne le sait sur le moment. La garde
+est posée sur la fenêtre entière, pas seulement sur les panneaux.
+
+Deuxième : **le navigateur ne donne pas le chemin du fichier d'origine**, et Electron ne
+le donne plus depuis la 32 (`webUtils.getPathForFile` demanderait un préchargement, donc
+de la logique dans `electron/main.js` — exactement ce que la règle « Electron n'est
+qu'une fenêtre » interdit). On envoie donc les OCTETS à `POST /api/terminals/:id/drop`,
+qui en pose une copie dans `os.tmpdir()/pyra-drops/<terminal>/` et rend le chemin. Un
+seul code pour les deux façons de lancer Pyra. Le corps est lu BRUT, pas en JSON : une
+capture de 8 Mo en base64 en ferait 11, pour rien.
+
+Trois conséquences voulues : le fichier de l'utilisateur n'est ni déplacé, ni modifié,
+ni supprimé ; rien n'entre dans son dépôt ; et le ménage revient à macOS, qui purge
+`/var/folders` tout seul — Pyra n'efface rien, ici non plus. Le nom est nettoyé
+(`dropName()`) parce qu'il vient du client : `basename`, filtre, points de tête retirés.
+
+Troisième : **le chemin est DÉPOSÉ dans l'invite, jamais envoyé.** Même règle que pour
+une étape, et le même chemin de code — `typeInto()` est le seul endroit qui écrit dans
+un pty depuis l'interface, pour qu'il n'y ait qu'un seul endroit où l'on pourrait, un
+jour, ajouter un `\r` par mégarde. Vérifié à l'écran : Claude Code reconnaît le chemin
+et affiche `[Image #1]` dans son invite, sans partir.
+
 ## Les deux visionneuses
 
 Elles sont en **lecture seule**, toutes les deux, et c'est ce qui les rend sûres :
 regarder le graphe ou l'histoire ne peut rien casser dans le dépôt. Elles ont chacune
 une adresse (`#p=<projet>&d=graph`, `&d=git`), pour la même raison que les onglets —
-la capture headless obligatoire du `CLAUDE.md` doit pouvoir les ouvrir sans clic.
+une capture headless doit pouvoir les ouvrir sans clic.
 
 **Le graphe se pose AVANT d'être montré.** `simulate()` fait tourner 200 à 320 tours
 de force dirigée sans rien afficher, puis peint et cadre une fois. Trois gains, et le
@@ -303,6 +427,14 @@ renommés avec l'app (ils se trouvent par le `CFBundleName`), et le bundle est
 re-signé à la fin — le retoucher annule la signature qu'il portait, et sur Apple
 Silicon une signature invalide est fatale.
 
+**La liste des modules embarqués est écrite à la main, donc elle prend du retard.**
+`make-app.sh` copie les modules racine un par un ; un module ajouté au dépôt et
+importé par `server.mjs` n'entre pas tout seul dans la charge. L'app se lance
+quand même — l'erreur n'arrive qu'à l'import manquant, chez l'utilisateur, pas au
+build (`repo.mjs`, `forge.mjs` et `settings.mjs` sont partis comme ça). Le script
+suit maintenant les imports relatifs depuis `electron/main.js` et `server.mjs` dans
+la copie, et s'arrête net s'il en manque un.
+
 **`node-pty` n'a pas besoin d'être recompilé.** Son prebuild est en N-API
 (`napi_register_module_v1`), donc le même `.node` se charge sous Node et sous
 Electron. `make-app.sh` le vérifie plutôt que de l'espérer : le jour où ça cesse
@@ -311,7 +443,7 @@ d'être vrai, le build échoue au lieu du premier terminal ouvert.
 **La barre de l'app EST la barre de titre.** La fenêtre est en `titleBarStyle:
 "hiddenInset"` et la page reçoit `?app=1`, qui allume `body.in-app` : 86 px réservés
 à gauche pour les trois boutons, et la barre devient déplaçable. C'est un paramètre
-d'URL et non un reniflage d'Electron, pour que la capture headless du CLAUDE.md ouvre
+d'URL et non un reniflage d'Electron, pour qu'une capture headless ouvre
 exactement la même page.
 
 ## Ce qu'il faut savoir avant de toucher au code
@@ -351,13 +483,31 @@ Côté client, la première mesure est en plus temporisée de 150 ms (`resize()`
 passe par une taille intermédiaire plus large, et c'est elle qui partait. Les
 mesures suivantes sont de vrais redimensionnements et partent sans délai.
 
+**Un `<dialog>` fermé ne doit son invisibilité qu'au navigateur.** `#settings` portait
+un `display: flex` NON conditionné, et le panneau des réglages restait peint par-dessus
+la page en permanence — au chargement, sans qu'on ait cliqué la roue. Le `display` va
+sur `#settings[open]`, comme `dialog.big[open]` deux blocs plus bas l'avait déjà compris.
+La sélection est la moitié de la règle. Symptôme trompeur : la page a l'air d'ouvrir les
+réglages toute seule, et l'attribut `open` n'est pourtant nulle part dans le DOM.
+
+**Une capture headless d'un terminal ne rend jamais la main.** Les WebSockets des
+panneaux gardent la page vivante, donc `--virtual-time-budget` n'expire pas et Chrome
+ne sort pas. Il faut le lancer en arrière-plan, attendre que le fichier de capture
+existe, puis le tuer. Sans ça, chaque capture bloque jusqu'au délai de garde puis
+échoue. Et `--user-data-dir` doit être neuf à chaque fois : un profil réutilisé restaure
+la session précédente et capture une AUTRE page que celle demandée — vu, en capturant
+ApplyStudio en croyant capturer Pyra.
+
 **Le collage d'une étape attend que l'invite soit prête, et n'appuie jamais sur
 Entrée.** Claude met une à deux secondes à peindre son invite, et peut afficher
 d'abord le dialogue de confiance du dossier — où une frappe vaut réponse. On
 attend donc un silence de 900 ms *et* l'absence de formulation bloquante
 (`BLOCKING` dans `app.js`). Le motif a été resserré après un test : `❯` y figurait
-et bloquait tout, puisque c'est aussi le chevron de l'invite ordinaire. Le bouton
-« ⌥ step » de l'en-tête reste le filet quand l'automatisme rate.
+et bloquait tout, puisque c'est aussi le chevron de l'invite ordinaire. Le mode bypass
+ajoute une question au répertoire : au tout premier lancement, Claude fait accepter sa
+mise en garde (« WARNING: Claude Code running in Bypass Permissions mode » / « Yes, I
+accept »), et coller dedans y vaudrait réponse. Le bouton « ⌥ step » de l'en-tête reste
+le filet quand l'automatisme rate.
 
 **Le `claude` appelé est résolu à la main, et `~/.local/bin` passe AVANT
 `/opt/homebrew/bin`.** Deux installations cohabitent souvent sur une même machine :
@@ -459,7 +609,7 @@ flex disparaissent, c'est le `gap` qui sépare, jamais une espace dans la chaîn
 champ « Name » le prend — et c'est le bon endroit.
 
 **Les deux panneaux ont une adresse (`#s=settings`, `#s=new`).** Même raison que les
-visionneuses : la vérification visuelle se fait en headless, où personne ne clique. Un
+visionneuses : une vérification visuelle se fait en headless, où personne ne clique. Un
 panneau sans adresse est un panneau qu'on ne peut regarder qu'à la main. Fermer un
 panneau efface son adresse — l'événement `close` du dialogue couvre les trois façons
 de fermer (le bouton, Échap, le clic hors cadre), ce que `showModal` ne fait pas seul.
@@ -541,6 +691,16 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
   n'enlève rien.
 - L'ordre des projets dans la barre latérale est fixe : ceux qui ont des sessions
   actives ne remontent pas d'eux-mêmes.
+- Les panneaux ne se réordonnent pas et ne se déplacent pas à la souris : la grille
+  suit l'ordre de création, et le seul geste de mise en page est le plein cadre.
+- Le mode de permission est global, pas par projet. Un dépôt qu'on préférerait tenir
+  en `manual` demanderait un réglage par projet — donc un endroit où le garder, et le
+  registre n'est pas fait pour ça.
+- Rien ne nettoie `os.tmpdir()/pyra-drops`. C'est délibéré : macOS purge `/var/folders`,
+  et une app qui efface des fichiers est une app qui peut en effacer un de trop.
+- On ne peut pas coller une image depuis le presse-papiers (⌘V) : seul le dépôt est
+  câblé. `xterm` traite déjà ⌘V comme du texte, et lui reprendre ce geste demanderait
+  de distinguer les deux cas à chaque frappe.
 - Aucun rafraîchissement automatique du graphe. Il se périme au fil des commits et
   c'est l'utilisateur qui appuie — `graphify watch` existe, mais un processus par
   projet suivi tournant en permanence n'a pas été jugé payant.
@@ -586,12 +746,16 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer la règle de fusion d'une proposition | `milestones.mjs` (`graft`), puis `test/milestones.test.mjs` |
 | Ajouter un champ à une étape | `milestones.mjs` (`mergeItem`, `serialize`), `server.mjs` (`buildState`, `PUT /steps`), `public/app.js` (`stepCard`) |
 | Toucher au cycle de vie d'un terminal | `terminals.mjs` (`create` / `start` / `resize` / `kill`) |
+| Changer ce que Claude demande avant d'agir | `settings.mjs` (`PERMISSION_MODES`, `cliCommand`), puis `test/settings.test.mjs` — jamais `--permission-mode bypassPermissions` |
+| Changer la découpe de la grille des terminaux | `public/app.js` (`gridShape`, `layout`, les trois constantes `CELL_*`), jamais sans recapture headless |
+| Toucher au « ＋ » ou au choix du projet | `public/app.js` (`addTile`, `askTerminal`, `renderNewTerm`), `public/index.html` (`#newterm`), `public/style.css` (`.addpane`, `.tlist`) |
+| Toucher au dépôt d'un fichier dans un panneau | `public/app.js` (`dropTarget`, `dropFiles`, `typeInto`), `server.mjs` (`/drop`, `DROPS`, `readRaw`, `dropName`) |
 | Changer la façon de rejoindre une session | `server.mjs` (`POST /api/attach`), `public/app.js` (`joinSession`) |
 | Toucher à la hiérarchie milestone/étape | `milestones.mjs` (`link`, `insertionPoint`), `public/app.js` (`mains`, `kids`, `subRow`) |
 | Modifier la barre latérale | `public/app.js` (`renderSide`), `public/style.css` (`#side`, `.sessions`) |
 | Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
 | Toucher au repli d'un milestone | `public/app.js` (`isOpen`, `setOpen`, `msRow`), clé `pyra.open` du `localStorage` |
-| Retoucher la force dirigée du graphe | `public/app.js` (`simulate`, bloc des constantes), jamais sans recapture headless |
+| Retoucher la force dirigée du graphe | `public/app.js` (`simulate`, bloc des constantes) — le résultat ne se juge qu'à l'écran |
 | Changer le dessin des voies git | `repo.mjs` (`lanes`) puis `test/repo.test.mjs`, et `gitRow` pour le tracé |
 | Retoucher la direction artistique | `public/style.css` (bloc `:root`), `scripts/brand.mjs` pour les images |
 | Changer ce que Graphify extrait (docs, images, LLM) | `graph.mjs` (`build`), en pesant d'abord la règle « aucun appel au modèle » |
@@ -603,7 +767,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Créer le dépôt distant autrement | `forge.mjs` (`createRemote`, `ghBin`) |
 | Changer le squelette d'un projet neuf | `forge.mjs` (`scaffold`, `starter`, `GITIGNORE`) |
 | Retoucher le panneau des réglages | `public/index.html` (`#settings`), `public/app.js` (`renderSettings`), `public/style.css` (`.sset`, `.frow`, `.opts`) |
-| Regarder un panneau en headless | son adresse : `#s=settings`, `#s=new` |
+| Regarder un panneau sans cliquer | son adresse : `#s=settings`, `#s=settings&sp=usage`, `#s=new` |
 | Ajouter une route | `server.mjs`, bloc `http` |
 | Toucher à la fenêtre, au menu, au ⌘Q | `electron/main.js` |
 | Changer ce que le bundle emporte, ou son identité | `scripts/make-app.sh` |
