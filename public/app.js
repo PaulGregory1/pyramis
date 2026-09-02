@@ -15,7 +15,7 @@ const STATUS = {
 const ORDER = ["todo", "doing", "blocked", "done"];
 
 const state = { data: null, selected: "", view: "board", filter: "all", dialog: "", panel: "", setPane: "model", zoom: "" };
-const panes = new Map(); // id -> { term, fit, ws, root, seed, lastData, booted }
+const panes = new Map(); // id -> { term, fit, ws, root, seed, lastData, booted, kind, edge, busyAt }
 
 /* ------------------------------------------------------------------ état */
 
@@ -103,7 +103,12 @@ function renderSide() {
     const list = el("div", "sessions");
     for (const r of rows) {
       const s = el("button", "sess" + (r.kind === "ext" ? " ext" : ""));
-      s.append(el("span", "sdot"));
+      // La pastille d'un panneau d'ici est repeinte HORS du rendu (`paintDots`) : son
+      // état change en une seconde, la barre latérale n'est refaite qu'aux quatre
+      // secondes du rafraîchissement. Elle porte donc l'id de son panneau.
+      const dot = el("span", "sdot");
+      if (r.kind === "mine") dot.dataset.pane = r.id;
+      s.append(dot);
       s.append(el("span", "sname", r.label));
       if (r.kind === "ext") {
         s.append(el("span", "stag", "background"));
@@ -117,6 +122,7 @@ function renderSide() {
     }
     box.append(list);
   }
+  paintDots();
   $(".proj.all").classList.toggle("on", !state.selected);
   const n = state.data.liveCount;
   $("#live").innerHTML = `<b>${n}</b> Claude session${n > 1 ? "s" : ""}`;
@@ -1490,7 +1496,7 @@ function makePane(t) {
 
   const pane = {
     term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false,
-    sized: false, sizeTimer: null, pasteBtn: paste,
+    sized: false, sizeTimer: null, pasteBtn: paste, kind: t.kind, edge: "", busyAt: 0,
   };
   panes.set(t.id, pane);
 
@@ -1508,7 +1514,19 @@ function makePane(t) {
       pane.booted = true;
       // Une queue de sortie débarrassée des codes ANSI : c'est le seul moyen de
       // savoir si un dialogue est à l'écran plutôt que l'invite de saisie.
-      pane.tail = (pane.tail + m.d.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")).slice(-3000);
+      const clean = m.d.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "");
+      pane.tail = (pane.tail + clean).slice(-3000);
+      // Le même texte, mais lu À CHAUD : `tail` garde 3000 caractères d'histoire, où un
+      // « esc to interrupt » d'il y a dix minutes traînerait encore et laisserait la
+      // pastille au rouge pour toujours. On ne regarde donc que ce qui vient d'arriver,
+      // recollé au bord du morceau précédent — la phrase tombe souvent à cheval sur deux
+      // envois, le pty ne découpe pas aux mots.
+      // Le bord est REMIS À ZÉRO dès qu'il a servi : gardé, il porterait la phrase
+      // qu'on vient de reconnaître dans le morceau suivant, et le rouge ne s'éteindrait
+      // plus jamais — la panne exacte que ce découpage était censé éviter.
+      const fresh = pane.edge + clean;
+      if (WORKING.test(fresh)) { pane.busyAt = Date.now(); pane.edge = ""; }
+      else pane.edge = fresh.slice(-60);
     }
     else if (m.t === "exit") { term.write(`\r\n\x1b[90m— session ended (code ${m.code}) —\x1b[0m\r\n`); refresh(); }
   };
@@ -1620,6 +1638,38 @@ function resize(id) {
 // et coller dedans y vaudrait réponse.
 const BLOCKING = /trust this folder|Yes, I trust|No, exit|Yes, I accept|Bypass Permissions mode|Do you want to proceed|Enter to confirm/i;
 
+// Ce que le panneau est en train de FAIRE, lu dans sa sortie : Claude ne l'annonce
+// nulle part ailleurs, et le serveur ne le sait pas non plus — il ne tient qu'un pty.
+// Sa ligne d'attente, elle, porte « esc to interrupt » tant qu'il travaille, et
+// disparaît dès qu'il rend la main. C'est le seul signal disponible sans lui parler.
+const WORKING = /esc to interrupt/i;
+// Cette ligne se repeint à chaque seconde (elle compte le temps écoulé). Deux secondes
+// sans la voir, c'est qu'elle a quitté l'écran, pas qu'elle a sauté un tour.
+const WORK_TTL = 2000;
+
+// Trois états, et pas un de plus : il travaille, il attend, ou il n'a rien dit encore.
+// Un panneau de shell n'entre pas dans ce vocabulaire — il n'y a pas de « fini » dans
+// un shell — et sa pastille reste celle d'avant.
+function paneState(pane) {
+  if (!pane || pane.kind !== "claude") return "";
+  if (!pane.booted) return "cold";
+  return Date.now() - pane.busyAt < WORK_TTL ? "work" : "rest";
+}
+
+// Repeindre les pastilles de la barre latérale sans refaire la barre. Le rendu, lui,
+// suit le rafraîchissement des quatre secondes : à ce rythme, un Claude qui répond en
+// deux secondes n'aurait jamais l'air de travailler. Deux classes retouchées, aucun
+// nœud remonté — c'est aussi ce qui garde le clavier d'un bouton survolé.
+const DOT_SAYS = { work: "Claude is working", rest: "Claude is waiting for you", cold: "Starting up" };
+
+function paintDots() {
+  for (const dot of document.querySelectorAll(".sdot[data-pane]")) {
+    const st = paneState(panes.get(dot.dataset.pane));
+    for (const k of ["work", "rest", "cold"]) dot.classList.toggle(k, st === k);
+    dot.parentElement.title = (DOT_SAYS[st] ? DOT_SAYS[st] + " — g" : "G") + "o to this terminal";
+  }
+}
+
 function pasteSeed(id) {
   const pane = panes.get(id);
   if (!pane?.text) return;
@@ -1639,6 +1689,7 @@ function typeInto(id, text) {
 
 setInterval(() => {
   const now = Date.now();
+  paintDots();
   for (const [id, pane] of panes) {
     if (pane.pasteBtn) pane.pasteBtn.style.display = pane.text ? "" : "none";
     const asking = pane.booted && BLOCKING.test(pane.tail.slice(-1200));

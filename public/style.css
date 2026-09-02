@@ -167,6 +167,23 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
 .sess:hover { background: var(--panel-2); color: var(--ink); }
 .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--done); flex: 0 0 6px; }
 .sess.ext .sdot { background: none; border: 1.5px solid var(--faint); }
+/* Rouge tant que Claude travaille, vert dès qu'il rend la main. Sur huit panneaux
+   ouverts, c'est ce point-là qui dit lequel attend une réponse — sans avoir à lire
+   huit terminaux. Gris tant que le pty n'a rien sorti : le panneau est là, le `claude`
+   dedans n'a pas encore parlé, et c'est justement ce qu'on veut voir du premier coup.
+   Le battement n'est pas décoratif : rouge et vert ne se distinguent pas pour tout le
+   monde, seul ce qui bouge travaille — et le battement porte un halo plutôt qu'une
+   simple opacité : à 6 px, un point qui descend à 30 % vire au rose pâle et se lit
+   moins bien que le vert d'à côté. Plein à 55 %, auréole qui grandit : le mouvement
+   se voit, la couleur reste franche. */
+.sdot.work { background: var(--blocked); animation: sdot-beat 1.2s ease-in-out infinite; }
+.sdot.rest { background: var(--done); }
+.sdot.cold { background: var(--faint); }
+@keyframes sdot-beat {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(209, 52, 91, .3); }
+  50% { opacity: .55; box-shadow: 0 0 0 3px rgba(209, 52, 91, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .sdot.work { animation: none; } }
 .sname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stag { font-size: 10.5px; color: var(--faint); font-style: italic; }
 

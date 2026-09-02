@@ -677,6 +677,27 @@ mise en garde (« WARNING: Claude Code running in Bypass Permissions mode » / �
 accept »), et coller dedans y vaudrait réponse. Le bouton « ⌥ step » de l'en-tête reste
 le filet quand l'automatisme rate.
 
+**La pastille d'une session dit ce que Claude FAIT, et elle le lit dans le pty.**
+Ni le serveur ni l'API ne savent si un panneau réfléchit — le serveur ne tient qu'un
+pty et son tampon. Le seul signal disponible est la ligne d'attente de Claude, qui
+porte « esc to interrupt » (`WORKING` dans `app.js`) tant qu'il travaille et disparaît
+dès qu'il rend la main. Trois états dans `paneState()` : rouge battant (il travaille),
+vert (il attend une réponse), gris (le pty n'a encore rien sorti — le panneau est
+ouvert, le `claude` dedans n'a pas parlé). Deux pièges, tous deux corrigés par un test
+qui rejoue un flux de pty (`WORK_TTL`, et le bord recollé) :
+
+- la queue `pane.tail` garde 3000 caractères d'HISTOIRE. Y chercher la phrase laisse
+  la pastille au rouge pour toujours, dix minutes après la fin. On ne lit donc que le
+  morceau qui vient d'arriver, recollé au bord du précédent (`pane.edge`) parce que le
+  pty ne découpe pas aux mots — et ce bord est REMIS À ZÉRO dès qu'il a servi, sinon
+  il reporte la phrase reconnue dans le morceau suivant, indéfiniment ;
+- la ligne se repeint chaque seconde (elle compte le temps écoulé), d'où les deux
+  secondes de `WORK_TTL` : moins, et la pastille clignoterait entre deux repeints.
+
+Le repeint, lui, est hors du rendu (`paintDots`, appelé par la boucle de 300 ms) :
+`renderSide()` suit le rafraîchissement des quatre secondes, et à ce rythme un Claude
+qui répond en deux secondes n'aurait jamais l'air de travailler.
+
 **Le `claude` appelé est résolu à la main, et `~/.local/bin` passe AVANT
 `/opt/homebrew/bin`.** Deux installations cohabitent souvent sur une même machine :
 l'installateur natif dans `~/.local/bin`, qui se met à jour tout seul, et un paquet npm
@@ -936,6 +957,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer la façon de rejoindre une session | `server.mjs` (`POST /api/attach`), `public/app.js` (`joinSession`) |
 | Toucher à la hiérarchie milestone/étape | `milestones.mjs` (`link`, `insertionPoint`), `public/app.js` (`mains`, `kids`, `subRow`) |
 | Modifier la barre latérale | `public/app.js` (`renderSide`), `public/style.css` (`#side`, `.sessions`) |
+| Toucher à la pastille d'état d'une session | `public/app.js` (`WORKING`, `WORK_TTL`, `paneState`, `paintDots`), `public/style.css` (`.sdot.work` / `.rest` / `.cold`) |
 | Toucher au passage d'une vue à l'autre | `public/app.js` (`showProject`, `focusPane`, `showView`) — les deux sens, jamais un seul |
 | Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
 | Toucher au repli d'un milestone | `public/app.js` (`isOpen`, `setOpen`, `msRow`), clé `pyra.open` du `localStorage` |
