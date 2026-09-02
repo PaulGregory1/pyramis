@@ -312,6 +312,18 @@ demandées à l'ouverture d'un projet ou au clic, et un cache d'une minute côt�
 (`previews` dans `app.js`). La tentative est notée AVANT le départ de la requête :
 sans ça, un dossier qui répond en erreur relancerait un appel à chaque rendu.
 
+**La bannière est la seule chose que l'étage du haut demande au dépôt lui-même.** Un
+projet peut poser une image dans `.pyra/banner.png` (ou `.jpg`, `.jpeg`, `.webp`,
+`.svg` — `BANNERS` dans `server.mjs`) ; elle s'affiche en tête de l'aperçu, au-dessus
+des deux colonnes. Rien dans `/api/state` ne dit qu'elle existe : `bannerBand()` pose
+la balise à l'aveugle, `GET /api/projects/:id/banner` répond 404 quand le fichier n'est
+pas là, et l'`onerror` retire la bande. C'est le prix à payer pour tenir la règle du
+coût nul — l'inverse mettrait un accès disque par projet dans la boucle des quatre
+secondes, pour une image que presque aucun projet n'a. La lecture est ASYNCHRONE
+(`fsp.access`) : ce chemin est dans `~/Documents` pour presque tous les projets, et
+c'est exactement le piège TCC. `contain` et une hauteur fixe côté CSS — on ne recadre
+pas l'image de quelqu'un d'autre, et un fichier de 4000 px n'enterre pas la page.
+
 **Les quatre colonnes ont laissé la place à une liste.** Un tableau rangé par statut
 perdait l'ORDRE DU FICHIER, qui est celui que l'utilisateur a écrit et le seul qui
 raconte une feuille de route. Le statut n'a pas disparu pour autant : il se lit à la
@@ -960,6 +972,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Toucher à la pastille d'état d'une session | `public/app.js` (`WORKING`, `WORK_TTL`, `paneState`, `paintDots`), `public/style.css` (`.sdot.work` / `.rest` / `.cold`) |
 | Toucher au passage d'une vue à l'autre | `public/app.js` (`showProject`, `focusPane`, `showView`) — les deux sens, jamais un seul |
 | Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
+| Changer la bannière d'un projet | son dépôt : `.pyra/banner.png` — le code est `BANNERS` et la route `/banner` dans `server.mjs`, `bannerBand` dans `public/app.js`, `.pv-banner` dans `public/style.css` |
 | Toucher au repli d'un milestone | `public/app.js` (`isOpen`, `setOpen`, `msRow`), clé `pyra.open` du `localStorage` |
 | Retoucher la force dirigée du graphe | `public/app.js` (`simulate`, bloc des constantes) — le résultat ne se juge qu'à l'écran |
 | Changer le dessin des voies git | `repo.mjs` (`lanes`) puis `test/repo.test.mjs`, et `gitRow` pour le tracé |

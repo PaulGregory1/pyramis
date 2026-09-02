@@ -396,7 +396,7 @@ async function buildState() {
 
 /* ------------------------------------------------------------------ http */
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".map": "application/json", ".svg": "image/svg+xml", ".png": "image/png" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".map": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
 const json = (res, code, body) => {
   const b = Buffer.from(JSON.stringify(body));
@@ -441,6 +441,11 @@ function dropName(raw) {
   const base = path.basename(String(raw || "")).replace(/[^\w.\-]+/g, "-").replace(/^[.\-]+/, "").slice(-80);
   return base || "drop";
 }
+
+// Les noms qu'un dépôt peut donner à sa bannière, dans `.pyra/`. Le premier trouvé
+// gagne : c'est une image, pas un réglage, et arbitrer entre deux serait une question
+// de plus pour un cas qui n'arrive pas.
+const BANNERS = ["banner.png", "banner.jpg", "banner.jpeg", "banner.webp", "banner.svg"];
 
 function serveFile(res, file) {
   fs.readFile(file, (err, buf) => {
@@ -640,6 +645,26 @@ const server = http.createServer(async (req, res) => {
       // faire croire que l'enregistrement a raté.
       autoSync(proj, "Milestones");
       return json(res, 200, { ok: true, items: M.items(merged).map(pick) });
+    }
+
+    // La bannière d'un projet : une image que le dépôt garde chez lui, dans
+    // `.pyra/banner.png`. Rien dans `/api/state` ne dit qu'elle existe — l'interface
+    // pose la balise à l'aveugle et la retire si la route répond 404. C'est ce qui
+    // garde la boucle des quatre secondes à coût nul : aucun projet n'a à déclarer
+    // qu'il a un visage, et un projet qui n'en a pas ne paie rien.
+    const bannerMatch = /^\/api\/projects\/([a-f0-9]+)\/banner$/.exec(p);
+    if (bannerMatch && req.method === "GET") {
+      const proj = byId(bannerMatch[1]);
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      for (const name of BANNERS) {
+        const file = path.join(proj.path, ".pyra", name);
+        // Lecture ASYNCHRONE, et c'est la règle du CLAUDE.md : ce chemin est dans
+        // `~/Documents` pour presque tous les projets, et un `existsSync` y fige la
+        // boucle Node entière le jour où macOS veut poser sa question.
+        try { await fsp.access(file); } catch { continue; }
+        return serveFile(res, file);
+      }
+      return json(res, 404, { error: "no banner" });
     }
 
     // Les trois lectures de la page d'un projet : son aperçu, son graphe, son histoire.

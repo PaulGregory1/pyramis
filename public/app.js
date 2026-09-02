@@ -479,6 +479,21 @@ function preview(p) {
   return cur?.data || null;
 }
 
+// La bannière du dépôt, quand il en a une : `.pyra/banner.png` chez lui. La balise
+// est posée sans rien avoir demandé — la route répond 404 quand le fichier n'existe
+// pas, et la bande se retire d'elle-même. Le détour vaut son prix : demander à
+// `/api/state` si un fichier est là mettrait un accès disque par projet dans la
+// boucle des quatre secondes, pour une image que presque personne n'a.
+function bannerBand(p) {
+  const band = el("div", "pv-banner");
+  const img = new Image();
+  img.alt = "";
+  img.onerror = () => band.remove();
+  img.src = `/api/projects/${p.id}/banner`;
+  band.append(img);
+  return band;
+}
+
 function previewPanel(p) {
   const box = el("section", "pv");
   const pv = preview(p);

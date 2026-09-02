@@ -230,6 +230,13 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
   font-size: 10px; font-weight: 600; text-transform: uppercase;
   letter-spacing: var(--track); color: var(--dim); margin-bottom: 7px;
 }
+/* La bannière, quand le dépôt en a une : une bande en tête de l'aperçu, au-dessus des
+   deux colonnes. `contain` plutôt que `cover` — on ne recadre pas l'image de quelqu'un
+   d'autre — et une hauteur fixe, pour qu'un fichier de 4000 px n'enterre pas le reste
+   de la page sous lui. */
+.pv-banner { grid-column: 1 / -1; margin-bottom: -4px; }
+.pv-banner img { display: block; width: 100%; height: 190px; object-fit: contain; }
+
 .pv-main { min-width: 0; }
 .pv-blurb { font-size: 13px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; max-width: 80ch; }
 .pv-blurb i { color: var(--faint); }
