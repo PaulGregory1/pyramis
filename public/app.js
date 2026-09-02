@@ -1858,6 +1858,13 @@ const CELL_MIN_H = 180;
 
 function gridShape(n, W, H) {
   if (n <= 1) return { cols: 1, rows: 1 };
+  // Deux panneaux vont côte à côte, quelle que soit la fenêtre. C'est la seule découpe
+  // écrite en dur, et elle ne contredit pas la règle : un terminal est une colonne de
+  // lignes, et l'empiler perd des LIGNES — ce qu'on vient lire — là où le rétrécir ne
+  // fait que replier le texte. À deux, la moitié de la hauteur coûte donc plus que la
+  // moitié de la largeur, et le score, qui ne voit que la forme de la cellule, ne sait
+  // pas le dire.
+  if (n === 2) return { cols: 2, rows: 1 };
   let best = null;
   for (let cols = 1; cols <= n; cols++) {
     const rows = Math.ceil(n / cols);

@@ -328,9 +328,12 @@ borné à 400 entrées, sinon un milestone supprimé y laisserait sa clé pour t
 géométrique, pas une préférence : `gridShape()` essaie chaque découpe possible et garde
 celle dont les cellules ressemblent le plus à un terminal — plus larges que hautes
 (`CELL_AR = 1.6`) — en pénalisant celles qui passent sous le lisible et, un peu, celles
-qui laissent des trous. Deux panneaux se rangent donc côte à côte dans une fenêtre
-large et l'un sous l'autre dans une fenêtre étroite, sans que personne n'ait rien
-choisi. La borne basse (`CELL_MIN_H`) est une vraie borne, posée en `minmax` : au-delà
+qui laissent des trous. Une seule découpe est écrite en dur : à DEUX panneaux, côte à
+côte, quelle que soit la fenêtre — un terminal est une colonne de lignes, l'empiler
+retire des lignes (ce qu'on vient lire) là où le rétrécir ne fait que replier le texte,
+et le score, qui ne juge que la forme d'une cellule, ne sait pas le dire. Au-delà, plus
+personne ne choisit : la géométrie tranche. La borne basse (`CELL_MIN_H`) est une
+vraie borne, posée en `minmax` : au-delà
 d'une quinzaine de panneaux la grille finit par défiler, ce qui vaut mieux que vingt
 bandes de trois lignes.
 
