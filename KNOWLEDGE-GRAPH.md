@@ -691,10 +691,20 @@ candidat trouvé dans cet ordre, et `agentsError()` traduit « unknown option »
 
 **Les panneaux maison ressortent aussi de `claude agents --json`.** Le pty fait
 `exec claude`, donc son pid EST celui de claude. `ownPids` dans `buildState()`
-rapproche les deux ; sans ça, chaque panneau compterait double dans la barre
-latérale — une fois comme terminal, une fois comme session « ailleurs ».
+rapproche les deux ; sans ça, chaque panneau comptait double dans la barre
+latérale — une fois comme terminal, une fois comme session « ailleurs ». Le filtre
+sur les sessions d'arrière-plan écarte aujourd'hui les mêmes lignes, mais `ownPids`
+reste le garde-fou d'un panneau qui reprend un fil d'arrière-plan.
 
-**Rejoindre une session ouverte ailleurs ouvre une BRANCHE.** `claude attach` ne
+**Les sessions ouvertes ailleurs sont VUES, pas montrées.** `claude agents --json`
+liste toutes les sessions de la machine ; `buildState()` ne garde dans `p.sessions`
+que celles d'arrière-plan. Une session interactive vivant dans un autre terminal ne
+peut pas être ramenée ici (au mieux forkée), et cinq de ses lignes sous un projet
+poussaient hors de vue les panneaux de Pyra. `liveCount` suit la même règle : il
+compte ce qui est affiché, pas ce que porte la machine. La route `/api/attach` sait
+toujours forker une session interactive — plus rien dans l'interface ne l'appelle.
+
+**Rejoindre une session d'arrière-plan, et le fork qui dort à côté.** `claude attach` ne
 sait reprendre que les sessions d'arrière-plan. Pour une session interactive qui
 vit dans un autre terminal, on lance `claude --resume <id> --fork-session` : le fil
 est repris ici, la session d'origine continue intacte. La branche démarre dans le

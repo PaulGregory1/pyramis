@@ -76,12 +76,13 @@ création. Un seul dépense — la génération des milestones par le modèle �
 étiqueté comme tel et décoché par défaut. Aucun secret n'est stocké : c'est `gh` qui
 tient le jeton, dans le trousseau du Mac.
 
-**Toutes les sessions d'un projet, sous son nom.** La barre latérale liste sous
-chaque projet les sessions Claude qui lui appartiennent — celles ouvertes ici, et
-celles lancées ailleurs sur la machine, marquées « elsewhere ». Un clic y va :
-sur un panneau de Pyra, il le met en avant ; sur une session d'ailleurs, il en
-reprend le fil dans une branche, la session d'origine continuant intacte de son
-côté. Le bouton **All projects**, en haut, ramène à la vue d'ensemble.
+**Les sessions d'un projet, sous son nom.** La barre latérale liste sous chaque
+projet les sessions Claude sur lesquelles un clic fait quelque chose : les panneaux
+ouverts ici, qu'il met en avant, et les sessions d'arrière-plan de la machine,
+marquées « background », dont il reprend le fil dans un panneau. Un `claude` qui
+tourne dans un vrai terminal ailleurs n'est pas listé : il a déjà sa fenêtre, et
+ses lignes repoussaient hors de vue celles d'ici. Le bouton **All projects**, en
+haut, ramène à la vue d'ensemble.
 
 **Autant de terminaux que voulu, en même temps.** Chaque panneau est un vrai
 pseudo-terminal : un vrai `claude` interactif, avec ses couleurs, son `/resume` et

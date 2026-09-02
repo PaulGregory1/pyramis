@@ -90,9 +90,10 @@ function renderSide() {
     }
 
     // Les sessions du projet, chacune sur son bouton. Deux origines : les panneaux
-    // ouverts ici, et les sessions lancées ailleurs sur la machine que
-    // `claude agents --json` rapporte. Les deux mènent au même geste — y aller —
-    // mais pas par le même chemin, d'où la distinction visuelle.
+    // ouverts ici, et les sessions d'arrière-plan que `claude agents --json` rapporte —
+    // celles qu'on peut vraiment reprendre. Les terminaux ouverts ailleurs sur la
+    // machine ne sont PAS listés (le filtre est dans `buildState()`) : ils ont déjà
+    // leur fenêtre, et leurs lignes repoussaient les panneaux d'ici hors de vue.
     const rows = [
       ...p.terminals.filter((t) => t.alive).map((t) => ({ kind: "mine", id: t.id, label: t.label || p.name, sub: t.kind })),
       ...p.sessions.map((s) => ({ kind: "ext", id: s.sessionId, label: s.name || s.sessionId.slice(0, 8), sub: s.kind, cwd: s.cwd, background: s.kind === "background" })),
@@ -105,10 +106,8 @@ function renderSide() {
       s.append(el("span", "sdot"));
       s.append(el("span", "sname", r.label));
       if (r.kind === "ext") {
-        s.append(el("span", "stag", "elsewhere"));
-        s.title = r.background
-          ? "Background session: pick it up in a pane here."
-          : "Session open in another terminal. Opening it here branches off — the original one carries on untouched.";
+        s.append(el("span", "stag", "background"));
+        s.title = "Background session: pick it up in a pane here.";
         s.onclick = () => joinSession(p, r);
       } else {
         s.title = "Go to this terminal";
@@ -196,7 +195,7 @@ function renderOverview(view) {
     else bits.push(`${p.mainStats.done}/${p.mainStats.total} milestones`);
     const small = p.stats.total - p.mainStats.total;
     if (small) bits.push(`${small} step${small > 1 ? "s" : ""}`);
-    if (p.sessions.length) bits.push(`${p.sessions.length} session${p.sessions.length > 1 ? "s" : ""}`);
+    if (p.sessions.length) bits.push(`${p.sessions.length} in background`);
     const opened = p.terminals.filter((t) => t.alive).length;
     if (opened) bits.push(opened > 1 ? `${opened} terminals here` : "1 terminal here");
     c.append(el("div", "sub", bits.join(" · ")));
@@ -536,7 +535,7 @@ function previewPanel(p) {
   const stepsDone = steps.filter((s) => s.status === "done").length;
   tiles.append(tile("Steps", steps.length ? `${stepsDone}/${steps.length}` : "—", steps.length ? "" : "none written down", steps.length ? stepsDone / steps.length : 0));
   const here = p.terminals.filter((t) => t.alive).length;
-  tiles.append(tile("Sessions", String(p.sessions.length + here), here ? `${here} here` : p.sessions.length ? "elsewhere" : "none live"));
+  tiles.append(tile("Sessions", String(p.sessions.length + here), here ? `${here} here` : p.sessions.length ? "in background" : "none live"));
   tiles.append(tile("Graph", p.graph?.built ? p.graph.nodes.toLocaleString("en") : "—", p.graph?.built ? (p.graph.stale ? "stale" : `${p.graph.edges.toLocaleString("en")} edges`) : "not built"));
   box.append(tiles);
 
@@ -570,7 +569,7 @@ function previewPanel(p) {
   if (note) box.append(note);
 
   if (p.sessions.length) {
-    box.append(el("div", "pv-sessions", "Live sessions: " + p.sessions.map((s) => `${s.name || s.sessionId.slice(0, 8)} (${s.kind})`).join(" · ")));
+    box.append(el("div", "pv-sessions", "Background sessions: " + p.sessions.map((s) => `${s.name || s.sessionId.slice(0, 8)} (${s.kind})`).join(" · ")));
   } else if (!p.hasFile) {
     box.append(el("div", "pv-sessions", "MILESTONES.md will be created with the first milestone."));
   }

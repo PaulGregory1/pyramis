@@ -360,10 +360,14 @@ async function buildState() {
       // ici — la règle des quatre secondes vaut aussi pour git.
       forge: forges.get(p.id) || null,
       sync: syncs.get(p.id) || null,
-      // `here` = ce que la barre latérale affiche sous le projet : les panneaux de
-      // Pyra d'abord, puis les sessions ouvertes ailleurs sur la machine.
+      // Ce que la barre latérale montre sous le projet en plus de ses panneaux : les
+      // sessions d'ARRIÈRE-PLAN qui lui appartiennent, et elles seules. Une session
+      // interactive vivant dans un vrai terminal ailleurs sur la machine n'apparaît
+      // plus : elle a déjà sa fenêtre, un clic ici ne la ramènerait pas mais en
+      // ouvrirait une branche, et cinq lignes « elsewhere » sous un projet noyaient
+      // les panneaux d'ici — les seuls sur lesquels un clic fasse ce qu'il annonce.
       sessions: agents.list
-        .filter((a) => ownerOf(a.cwd || "") === p && !ownPids.has(a.pid))
+        .filter((a) => a.kind === "background" && ownerOf(a.cwd || "") === p && !ownPids.has(a.pid))
         .map((a) => ({ ...a, external: true })),
       terminals: mine,
     });
@@ -380,7 +384,12 @@ async function buildState() {
     // besoin des réglages à chaque rendu (le bouton « New project » n'existe que
     // s'il y a de quoi le nourrir).
     settings: S.read(),
-    liveCount: agents.list.length,
+    // Ce que l'app MONTRE, pas ce que la machine porte : ses panneaux `claude` vivants
+    // plus les sessions d'arrière-plan des projets. Compter aussi les sessions ouvertes
+    // ailleurs donnait un nombre qu'aucune ligne de l'interface ne permettait de
+    // retrouver — et qui grimpait tout seul quand on travaillait hors de Pyra.
+    liveCount: out.reduce((n, p) => n + p.sessions.length, 0)
+      + terms.filter((t) => t.alive && t.kind === "claude").length,
     now: Date.now(),
   };
 }
