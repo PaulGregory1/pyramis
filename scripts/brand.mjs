@@ -29,6 +29,33 @@ ink.putalpha(crop.convert("L").point(lambda v: 255 - v))
 th = 85
 ink.resize((round(ink.width * th / ink.height), th), Image.LANCZOS).save("public/brand/wordmark.png")
 
+# Le logo du graphe : même travail que le mot-symbole, mais la couleur est le sujet.
+# L'original est peint sur du blanc opaque, donc l'alpha se déduit du canal le plus
+# sombre (255 - min), puis on démultiplie pour retrouver le violet plein — sans quoi
+# le losange sortirait délavé de moitié. Les bords lissés gardent leur dégradé.
+g = Image.open("public/brand/graph-pyr.png").convert("RGB")
+gp = g.load(); gw, gh = g.size
+box = [x for y in range(gh) for x in range(gw) if min(gp[x, y]) < 235], \
+      [y for y in range(gh) for x in range(gw) if min(gp[x, y]) < 235]
+g = g.crop((min(box[0]), min(box[1]), max(box[0]) + 1, max(box[1]) + 1))
+top = max(255 - min(g.getpixel((x, y))) for y in range(g.height) for x in range(g.width))
+out = Image.new("RGBA", g.size)
+op = out.load(); gp = g.load()
+for y in range(g.height):
+    for x in range(g.width):
+        r, gg, b = gp[x, y]
+        a = min(255, round((255 - min(r, gg, b)) * 255 / top))
+        if a == 0:
+            op[x, y] = (0, 0, 0, 0); continue
+        f = a / 255
+        op[x, y] = tuple(max(0, min(255, round((c - 255 * (1 - f)) / f))) for c in (r, gg, b)) + (a,)
+# Une seule taille, servie à 13 px dans les boutons et 17 px dans l'en-tête de la
+# visionneuse : 128 laisse la marge d'un écran Retina et pèse quelques kilo-octets.
+out.thumbnail((128, 128), Image.LANCZOS)
+sq = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+sq.paste(out, ((128 - out.width) // 2, (128 - out.height) // 2), out)
+sq.save("public/brand/graph-128.png")
+
 # La pyramide : rognée au contenu, centrée, en trois tailles.
 l = Image.open("public/brand/logo-pyr.png").convert("RGBA")
 l = l.crop(l.getbbox())

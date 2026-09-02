@@ -286,11 +286,24 @@ const GRAPH_TITLE =
   "Local AST extraction: no API key, no tokens, a few seconds.\n" +
   "Claude then queries it instead of re-reading the whole repository.";
 
+// Le losange ◈ était un caractère ; c'est maintenant le logo. Une seule fabrique le
+// pose, pour que les boutons du graphe et l'en-tête de la visionneuse portent la même
+// image — et pour qu'il n'y ait qu'un chemin à changer si elle bouge. La ligne de
+// mesure de `graphNote`, elle, garde son caractère : elle n'a droit à aucune couleur.
+function graphIcon() {
+  const i = el("img", "gicon");
+  i.src = "/brand/graph-128.png";
+  i.alt = "";
+  return i;
+}
+
 function graphButton(p, cls) {
   const g = p.graph;
   const busy = Boolean(g?.job?.running);
-  const label = busy ? "◌ Reading the code…" : g?.built ? "◈ Rebuild graph" : "◈ Build graph";
-  const b = el("button", cls + (busy ? " busy" : "") + (g?.stale && !busy ? " warn" : ""), label);
+  const b = el("button", cls + " gbtn" + (busy ? " busy" : "") + (g?.stale && !busy ? " warn" : ""));
+  // Pendant la construction, le logo cède la place au ◌ : c'est lui qui dit « ça tourne ».
+  if (busy) b.append("◌ Reading the code…");
+  else b.append(graphIcon(), g?.built ? "Rebuild graph" : "Build graph");
   b.title = GRAPH_TITLE;
   b.disabled = busy || !p.exists || !state.data?.graphify;
   if (!state.data?.graphify) b.title = "graphify is not installed — run: uv tool install graphifyy";
@@ -391,7 +404,7 @@ function forgeNote(p) {
 
 // Un projet né dans Pyra porte `auto.sync` : l'app commite ce qu'elle écrit chez lui.
 // Un projet ajouté depuis la machine ne l'a pas, et le bouton reste la seule façon
-// d'obtenir le geste — une fois, sciemment. C'est la même forme que `◈ Build graph`.
+// d'obtenir le geste — une fois, sciemment. C'est la même forme que « Build graph ».
 function syncButton(p, cls) {
   const b = el("button", cls, "⇧ Push milestones");
   b.disabled = !p.exists;
@@ -519,7 +532,8 @@ function previewPanel(p) {
   // graphe du code et l'arbre des commits ne se modifient pas depuis ici.
   const acts = el("div", "pv-acts");
 
-  const bGraph = el("button", "btn", "◈ Knowledge graph");
+  const bGraph = el("button", "btn gbtn");
+  bGraph.append(graphIcon(), "Knowledge graph");
   bGraph.disabled = !p.graph?.built;
   bGraph.title = p.graph?.built
     ? "See the code as a graph: what calls what, and which symbols are the hubs."

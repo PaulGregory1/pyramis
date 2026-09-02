@@ -64,7 +64,7 @@ un geste que l'app déclenche seule ne doit jamais coûter un token.
 il se déclenche désormais à la CRÉATION. Un dossier déjà présent sur la machine existait
 avant l'app : il a son histoire, son `CLAUDE.md`, peut-être un travail en cours, et un
 geste non demandé sur un dépôt qu'on n'a pas fabriqué est une intrusion, fût-il gratuit.
-Le bouton `◈ Build graph` de la page du projet reste la voie pour eux — c'est un clic.
+Le bouton « Build graph » de la page du projet reste la voie pour eux — c'est un clic.
 
 Corollaire mesuré, pas deviné : **un projet qu'on vient de créer produit un graphe
 vide**, et Graphify le rend comme une erreur (« graph is empty — extraction produced
@@ -105,10 +105,25 @@ Trois règles en découlent, et elles tiennent toute la feuille de style :
    (`--track: .16em`, capitales, graisse 600). C'est ce détail, plus que la
    couleur, qui fait reconnaître la marque à l'intérieur de l'interface.
 
-`scripts/brand.mjs` regénère les déclinaisons depuis les deux originaux : le
+`scripts/brand.mjs` regénère les déclinaisons depuis les TROIS originaux : le
 mot-symbole rogné sur fond transparent (la police du logo n'existe pas sur la
-machine — la réapprocher donnerait un faux, donc c'est une image), et la pyramide
-en 256 / 128 / 64 px. Les originaux restent dans `public/brand/`.
+machine — la réapprocher donnerait un faux, donc c'est une image), la pyramide
+en 256 / 128 / 64 px, et le logo du graphe en 128 px. Les originaux restent dans
+`public/brand/`.
+
+Le logo du graphe (`graph-pyr.png` → `graph-128.png`) est la seule exception mesurée
+à la règle 2 : un dégradé violet qui n'est pas l'accent. Il la tient quand même,
+parce qu'il ne décore rien — il ne paraît QUE là où le graphe est en jeu (les deux
+boutons qui le construisent, celui qui l'ouvre, l'en-tête de la visionneuse), et
+c'est `graphIcon()` dans `app.js` qui le pose partout, d'un seul endroit. La ligne
+de mesure de `graphNote`, elle, garde son `◈` : elle dit un chiffre, pas un geste,
+et n'a droit à aucune couleur tant que rien ne cloche.
+
+L'original est peint sur du blanc OPAQUE, là où `logo-pyr.png` a déjà son alpha.
+D'où le détour de `brand.mjs` : l'alpha se déduit du canal le plus sombre
+(`255 - min(r,g,b)`, rapporté au pixel le plus plein), puis on démultiplie la
+couleur — sans quoi le violet sortirait délavé de moitié, le blanc du fond restant
+mélangé dedans.
 
 Le mot-symbole est rendu à HAUTEUR constante (85 px), pas à largeur constante :
 `.brand .wordmark` pose `height: 12px`, donc c'est la hauteur qui fixe la taille
@@ -276,8 +291,8 @@ jusqu'à 70 %, puis `--warn`, puis `--blocked` — la couleur ne vient qu'avec l
 | `scripts/make-app.sh` | Emballe `build/Pyra.app` à partir du runtime Electron de `node_modules`. Sans packager. |
 | `scripts/icon.mjs` | L'`.icns` depuis `logo-pyr.png`. Décode et encode le PNG à la main, aucune dépendance. |
 | `scripts/fix-pty.mjs` | Remet `+x` sur le `spawn-helper` de node-pty après chaque `npm install`. |
-| `scripts/brand.mjs` | Regénère mot-symbole et pyramide depuis les deux originaux. |
-| `public/brand/` | Les originaux (`logo-pyr.png`, `brand-pyr.png`) et leurs déclinaisons. |
+| `scripts/brand.mjs` | Regénère mot-symbole, pyramide et logo du graphe depuis les originaux. |
+| `public/brand/` | Les originaux (`logo-pyr.png`, `brand-pyr.png`, `graph-pyr.png`) et leurs déclinaisons. |
 
 ## La page d'un projet : deux étages, et pourquoi
 
@@ -795,7 +810,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
   écrit pour un second, et le champ « model » n'est validé par personne avant le CLI.
 - Le graphe d'un projet créé est vide par construction (rien que du markdown au
   premier jour). Rien ne le reconstruit quand le code arrive : c'est un clic sur
-  `◈ Build graph`.
+  « Build graph ».
 - La création ne sait pas partir d'un modèle de projet : un README, un `.gitignore` de
   deux lignes et trois milestones à remplacer. Deviner la pile d'un projet qui n'a pas
   encore une ligne de code, c'est se tromper.
@@ -846,6 +861,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer ce que Graphify extrait (docs, images, LLM) | `graph.mjs` (`build`), en pesant d'abord la règle « aucun appel au modèle » |
 | Retoucher le bloc greffé dans les `CLAUDE.md` | `graph.mjs` (`BLOCK`, `MARK_OPEN`), puis `test/graph.test.mjs` |
 | Changer ce que l'interface dit du graphe | `public/app.js` (`graphNote`, `graphButton`), `public/style.css` (`.gnote`) |
+| Changer le logo du graphe | `public/brand/graph-pyr.png`, puis `node scripts/brand.mjs` — `graphIcon()` et `.gicon` ne bougent pas |
 | Changer ce qui se déclenche à la création d'un projet | `settings.mjs` (`DEFAULTS.create`), `server.mjs` (`startForge`), `public/app.js` (`CREATE_OPTS`) — les intitulés viennent d'une SEULE liste |
 | Ajouter un provider | `settings.mjs` (`PROVIDERS`), puis `server.mjs` (`/api/connections`, la résolution du binaire) |
 | Toucher à ce que l'app commite | `forge.mjs` (`OWNED`, `sync`), puis `test/forge.test.mjs` — chaque nom ajouté est un fichier de plus qu'on s'autorise chez quelqu'un d'autre |

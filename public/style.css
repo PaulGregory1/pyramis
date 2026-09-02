@@ -376,6 +376,16 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
    tabulaires, aucune couleur tant que rien ne cloche. Un graphe périmé est le seul
    cas qui mérite d'être vu de loin, et il emprunte l'ambre plutôt que le rouge des
    milestones bloqués — un graphe en retard n'est pas un travail en échec. */
+/* Le logo du graphe remplace le losange partout où il y a un geste à faire : les
+   boutons et l'en-tête de la visionneuse. C'est le seul dégradé de la page à côté de
+   l'accent, et il désigne toujours la même chose — d'où la taille unique. Le bouton
+   passe en `inline-flex` seulement quand il porte l'image : les autres gardent leur
+   rendu de texte, où une ligne de base vaut mieux qu'un centrage. */
+.gicon { width: 15px; height: 15px; flex: 0 0 15px; }
+.gicon.big { width: 18px; height: 18px; flex: 0 0 18px; margin-right: -5px; }
+.btn.gbtn { display: inline-flex; align-items: center; gap: 7px; }
+.btn.gbtn:disabled .gicon { filter: grayscale(1); opacity: .7; }
+
 .gnote {
   margin-top: 8px; font-size: 11.5px; color: var(--dim);
   font-variant-numeric: tabular-nums; display: flex; gap: .34em; align-items: baseline; flex-wrap: wrap;
