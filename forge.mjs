@@ -223,7 +223,11 @@ export async function createRemote(dir, { name, visibility = "private", remote =
 // entrer dans un commit qu'il n'a pas déclenché. `graphify-out/` n'est pas de la
 // liste : il est exclu via `.git/info/exclude` (voir `graph.mjs`), donc il ne peut
 // pas être commité même par accident.
-export const OWNED = ["MILESTONES.md", "CLAUDE.md"];
+// `.pyra/preview.json` en fait partie : c'est Pyra qui l'écrit, et son contenu est un
+// HISTORIQUE — des relevés datés qu'un `git checkout` d'il y a un mois doit encore
+// porter. La bannière du même dossier, elle, n'y est pas : elle appartient au dépôt,
+// pas à l'app, et c'est à l'utilisateur de décider si elle entre dans un commit.
+export const OWNED = ["MILESTONES.md", "CLAUDE.md", ".pyra/preview.json"];
 
 // `git commit -- <chemins>` commite la version DISQUE de ces chemins-là, quoi qu'il
 // y ait dans l'index. C'est ce qui rend la synchro sûre au milieu d'un travail en

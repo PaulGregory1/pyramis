@@ -143,8 +143,29 @@ test("la synchro laisse le travail en cours de l'utilisateur exactement où il e
 
 test("la synchro ne touche qu'aux fichiers que Pyra écrit", async () => {
   // La liste est courte et doit le rester : chaque nom ajouté ici est un fichier de
-  // plus que l'app s'autorise à commiter chez quelqu'un d'autre.
-  assert.deepEqual(OWNED, ["MILESTONES.md", "CLAUDE.md"]);
+  // plus que l'app s'autorise à commiter chez quelqu'un d'autre. `.pyra/preview.json`
+  // y est entré parce qu'il porte un HISTORIQUE de mesures — des relevés datés que
+  // rien d'autre ne saurait reconstituer, et qu'un dépôt cloné ailleurs doit avoir.
+  // La bannière du même dossier n'y est PAS : elle appartient à l'utilisateur.
+  assert.deepEqual(OWNED, ["MILESTONES.md", "CLAUDE.md", ".pyra/preview.json"]);
+});
+
+test("un chemin imbriqué se commite comme les autres, et seul", async () => {
+  const dir = await repo();
+  await scaffold(dir, { name: "Projet", milestones: true });
+  await firstCommit(dir);
+
+  await fsp.mkdir(path.join(dir, ".pyra"), { recursive: true });
+  await fsp.writeFile(path.join(dir, ".pyra/preview.json"), '{ "goal": "x", "metrics": [] }\n', "utf8");
+  // Une image posée à côté dans le MÊME dossier : elle appartient au dépôt, pas à
+  // l'app, et elle doit rester non suivie après la synchro.
+  await fsp.writeFile(path.join(dir, ".pyra/banner.png"), "pas vraiment un png", "utf8");
+
+  const r = await sync(dir, { push: false });
+  assert.equal(r.ok, true);
+  const touched = git(dir, "show", "--name-only", "--format=", "HEAD").trim().split("\n").filter(Boolean);
+  assert.deepEqual(touched, [".pyra/preview.json"]);
+  assert.equal(git(dir, "status", "--porcelain").trim(), "?? .pyra/banner.png");
 });
 
 test("un commit fait sans distant n'est pas perdu, il attend", async () => {

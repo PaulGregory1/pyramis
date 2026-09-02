@@ -1,4 +1,4 @@
-<!-- graph-baseline: 5c761cc -->
+<!-- graph-baseline: 4644a07 -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -283,6 +283,7 @@ jusqu'à 70 %, puis `--warn`, puis `--blocked` — la couleur ne vient qu'avec l
 | `milestones.mjs` | Analyse et réécriture de `MILESTONES.md`. Aucune dépendance au reste. |
 | `generate.mjs` | L'appel au modèle : un `claude -p` en lecture seule dans le dépôt. |
 | `prompts/milestones.md` | Le prompt de génération. Relu à chaque appel, donc modifiable à chaud. |
+| `preview.mjs` | L'aperçu chiffré : le `.pyra/preview.json` d'un dépôt, ses collecteurs, et le tour de modèle qui les écrit. |
 | `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur, lecture pour la visionneuse. |
 | `repo.mjs` | Ce que le dépôt dit de lui-même : README, langages, branche, et l'histoire git mise en voies. Git en LECTURE seule. Aucune dépendance au reste. |
 | `forge.mjs` | Le miroir en ÉCRITURE de `repo.mjs` : `git init`, premier commit, `gh repo create`, et la synchro. Seul module qui puisse modifier l'histoire d'un dépôt. |
@@ -323,6 +324,47 @@ secondes, pour une image que presque aucun projet n'a. La lecture est ASYNCHRONE
 (`fsp.access`) : ce chemin est dans `~/Documents` pour presque tous les projets, et
 c'est exactement le piège TCC. `contain` et une hauteur fixe côté CSS — on ne recadre
 pas l'image de quelqu'un d'autre, et un fichier de 4000 px n'enterre pas la page.
+
+**L'étage du haut a gagné un étage au-dessus de lui : ce que le dépôt VISE.** Le
+README, la branche et les langages disent ce qu'un projet EST ; rien là-dedans ne dit
+s'il est en train de gagner. La bande `goalBand()` porte cette moitié-là — l'objectif
+en une phrase, et deux à quatre nombres avec leur courbe. Elle est en tête parce que
+c'est ce qu'on vient chercher, et sur un projet qui n'a rien elle devient un écran
+entier avec un seul bouton au milieu : `emptyGoal()`.
+
+**La donnée est dans le dépôt, l'état du travail est en mémoire, et les deux ne
+passent pas par la même porte.** Le `.pyra/preview.json` (objectif, métriques,
+relevés datés) arrive avec `GET /api/projects/:id/preview`, à la demande, à côté de
+l'aperçu. Ce que `/api/state` porte, c'est UNIQUEMENT `p.preview` — l'état du job en
+cours, un objet en mémoire, gratuit. Lire le fichier dans la boucle des quatre
+secondes serait un accès disque par projet pour une donnée qui bouge une fois par
+jour. Conséquence à ne pas perdre : le cache d'une minute de `previews` côté client
+est scellé par `p.preview.endedAt`, sinon un clic sur « Update » n'aurait d'effet
+visible qu'une minute plus tard.
+
+**Le modèle écrit les commandes, l'app les exécute, et l'inverse serait une autre
+application.** `design()` tourne avec `Read`/`Glob`/`Grep` et rien d'autre : il déduit
+du dépôt une ligne de `sh` par métrique, sans jamais la lancer. `collect()` la lance
+ensuite, dans le dossier du projet, sur un clic. La tentation évidente — donner `Bash`
+au modèle pour qu'il vérifie sa commande — ferait de « Build preview » un shell ouvert
+chez l'utilisateur derrière une promesse de graphique. Le prix de ce refus est qu'une
+commande peut être fausse : elle est donc AFFICHÉE sous sa courbe, son erreur avec, et
+le fichier se corrige à la main.
+
+**Trois pièges dans les relevés, tous trouvés par un test.** `readNumber()` prend la
+DERNIÈRE ligne, pas la première : un script qui dit « running 40 games » avant de
+conclure aurait rendu 40 comme Elo, sans jamais échouer. Une commande qui ne rend pas
+de nombre est une ERREUR, jamais un zéro — un zéro silencieux ferait plonger la courbe
+et raconterait un effondrement là où il n'y a qu'un `awk` cassé. Et une métrique sans
+cible en gagnait une à 0 au premier aller-retour disque, `Number(null)` valant 0 :
+d'où le `typeof m.target === "number"` de `normalize()`.
+
+**La courbe montre la forme, la jauge montre le chemin.** Faire entrer la cible dans
+l'échelle de la courbe écrasait la donnée contre le bas du cadre : un Elo qui va de
+1712 à 1834 devient une ligne plate dès qu'on ouvre l'axe jusqu'à 2000. Le repère de
+`spark()` tient donc à ce qui a été MESURÉ, et la cible se lit sous lui, en jauge et
+en pourcentage. Le `viewBox` garde ses proportions — un `preserveAspectRatio="none"`
+ferait des ellipses de tous les points.
 
 **Les quatre colonnes ont laissé la place à une liste.** Un tableau rangé par statut
 perdait l'ORDRE DU FICHIER, qui est celui que l'utilisateur a écrit et le seul qui
@@ -972,6 +1014,10 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Toucher à la pastille d'état d'une session | `public/app.js` (`WORKING`, `WORK_TTL`, `paneState`, `paintDots`), `public/style.css` (`.sdot.work` / `.rest` / `.cold`) |
 | Toucher au passage d'une vue à l'autre | `public/app.js` (`showProject`, `focusPane`, `showView`) — les deux sens, jamais un seul |
 | Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
+| Changer ce que l'aperçu chiffré montre | `public/app.js` (`goalBand`, `metricCard`, `spark`), `public/style.css` (`.goal`, `.mx*`) |
+| Changer ce que le modèle propose comme métrique | `prompts/preview.md`, puis `SCHEMA` dans `preview.mjs` — les deux, jamais un seul |
+| Toucher aux relevés d'un projet | `preview.mjs` (`collect`, `readNumber`, `normalize`, `graft`), puis `test/preview.test.mjs` |
+| Donner plus d'outils au tour de modèle de l'aperçu | `preview.mjs` (`READ_ONLY`) — en pesant d'abord ce que `Bash` ferait de ce bouton |
 | Changer la bannière d'un projet | son dépôt : `.pyra/banner.png` — le code est `BANNERS` et la route `/banner` dans `server.mjs`, `bannerBand` dans `public/app.js`, `.pv-banner` dans `public/style.css` |
 | Toucher au repli d'un milestone | `public/app.js` (`isOpen`, `setOpen`, `msRow`), clé `pyra.open` du `localStorage` |
 | Retoucher la force dirigée du graphe | `public/app.js` (`simulate`, bloc des constantes) — le résultat ne se juge qu'à l'écran |

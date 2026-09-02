@@ -237,6 +237,80 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
 .pv-banner { grid-column: 1 / -1; margin-bottom: -4px; }
 .pv-banner img { display: block; width: 100%; height: 190px; object-fit: contain; }
 
+/* ------------------------------------------------- l'aperçu chiffré : l'objectif */
+/* Ce que le dépôt VISE, en tête de l'aperçu : une phrase, puis deux à quatre nombres
+   avec leur courbe. Le reste du panneau dit ce que le projet est ; cette bande-ci dit
+   s'il gagne, et c'est la première chose qu'on vient chercher — d'où sa place, juste
+   sous la bannière et au-dessus de tout le reste. */
+.goal { grid-column: 1 / -1; }
+.goal-h { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 11px; }
+.goal-h .grow { flex: 1; }
+.goal-t { min-width: 0; }
+.goal-t .pv-label { margin-bottom: 3px; }
+.goal-s { font-size: 13px; color: var(--ink-2); max-width: 72ch; }
+.goal .gnote { display: flex; gap: 8px; margin-top: 10px; }
+.goal .gnote .bad { color: var(--blocked); }
+
+/* La bande vide, et c'est un écran à part entière : un projet sans mesure n'a pas
+   « une case en moins », il n'a rien du tout, et le bouton doit être le seul endroit
+   où l'œil tombe. D'où la hauteur, le centrage, et le fond légèrement creusé. */
+.empty-goal {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 9px; text-align: center; min-height: 216px; padding: 26px 22px;
+  background: var(--panel-2); border-radius: var(--r); margin-bottom: 4px;
+}
+.eg-t { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.eg-s { font-size: 12.5px; line-height: 1.6; color: var(--dim); max-width: 62ch; }
+.empty-goal .btn.big { margin-top: 7px; padding: 9px 18px; font-size: 13px; }
+.empty-goal .gen { margin-top: 2px; }
+/* Pendant la lecture du dépôt : une barre qui va et vient. Le travail dure une à trois
+   minutes et rien d'autre ne bouge à l'écran — sans elle, le bouton aurait l'air mort. */
+.eg-w { width: 148px; height: 2px; margin-top: 9px; border-radius: 2px; background: var(--line-2); overflow: hidden; position: relative; }
+.eg-w::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 40%;
+  background: var(--grad); animation: slide 1.5s ease-in-out infinite;
+}
+@keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
+
+/* Les cartes. `auto-fit` plutôt qu'un nombre de colonnes : une seule mesure prend
+   toute la largeur et sa courbe devient lisible de loin, quatre se rangent en ligne. */
+.mxs { display: grid; grid-template-columns: repeat(auto-fit, minmax(226px, 1fr)); gap: 10px; }
+.mxs.one { grid-template-columns: minmax(0, 1fr); }
+.mx {
+  background: var(--panel-2); border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: 10px 12px 11px; min-width: 0;
+}
+.mx.bad { border-color: #f0d3da; }
+.mx-h { display: flex; align-items: baseline; gap: 8px; }
+.mx-l { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: var(--track); color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* La variation depuis le relevé d'avant. Elle porte la seule couleur de la carte, et
+   elle la porte dans le SENS du projet : sur une latence, descendre est une bonne
+   nouvelle, et un vert qui dirait le contraire vaudrait mieux ne rien dire. */
+.mx-d { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mx-d.up { color: var(--done); }
+.mx-d.down { color: var(--blocked); }
+.mx-d.flat { color: var(--faint); }
+.mx-v { display: flex; align-items: baseline; gap: 5px; font-size: 27px; font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; }
+.mx-v i { font-size: 12px; font-weight: 500; font-style: normal; color: var(--faint); letter-spacing: 0; }
+/* Hauteur FIXE, largeur libre : c'est ce qui tient une métrique seule à la même taille
+   que quatre en ligne. Le repère est donc étiré, et rien de rond n'a le droit d'y
+   entrer — voir `spark()`. */
+.mx-g { display: block; width: 100%; height: 78px; margin: 6px 0 2px; }
+.mx-flat { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 4; }
+.mx .gauge { margin: 8px 0 4px; }
+.mx-t { display: flex; gap: 5px; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.mx-t b { color: var(--ink-2); font-weight: 600; }
+.mx-s { font-size: 11px; color: var(--dim); margin-top: 5px; line-height: 1.45; }
+/* La commande est MONTRÉE, et c'est le prix du marché : Pyra la lance, donc elle ne
+   peut pas la cacher. Une ligne, coupée, le tout au survol dans l'infobulle — et le
+   fichier `.pyra/preview.json` du dépôt porte la version qu'on corrige. */
+.mx-c {
+  display: block; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mx-e { margin-top: 5px; font-size: 11px; color: var(--blocked); }
+.mx-n { margin-top: 5px; font-size: 10.5px; color: var(--faint); }
+
 .pv-main { min-width: 0; }
 .pv-blurb { font-size: 13px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; max-width: 80ch; }
 .pv-blurb i { color: var(--faint); }

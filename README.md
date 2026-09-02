@@ -76,6 +76,16 @@ création. Un seul dépense — la génération des milestones par le modèle �
 étiqueté comme tel et décoché par défaut. Aucun secret n'est stocké : c'est `gh` qui
 tient le jeton, dans le trousseau du Mac.
 
+**Chaque projet dit où il en est de son objectif.** En tête de sa page, une bande
+porte ce que le dépôt vise et les deux ou trois nombres qui s'en approchent : l'Elo
+d'un moteur d'échecs, le total de téléchargements d'une app, le rendement d'une
+stratégie — avec leur courbe depuis le premier relevé. Sur un projet qui n'en a pas
+encore, un seul bouton au milieu : **Build preview**. Claude lit le dépôt, en déduit
+ce qu'il cherche à atteindre, et écrit UNE commande de shell par nombre. Il ne la
+lance pas — Pyra le fait, sur un clic. Ensuite, **Update** ajoute un point à chaque
+courbe et ne coûte rien : c'est le geste qu'on répète tous les soirs. Le tout vit dans
+le `.pyra/preview.json` du dépôt, lisible et corrigeable à la main.
+
 **Les sessions d'un projet, sous son nom.** La barre latérale liste sous chaque
 projet les sessions Claude sur lesquelles un clic fait quelque chose : les panneaux
 ouverts ici, qu'il met en avant, et les sessions d'arrière-plan de la machine,

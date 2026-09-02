@@ -468,13 +468,18 @@ const previews = new Map(); // projectId -> { at, data }
 const PREVIEW_TTL = 60_000;
 
 function preview(p) {
+  // Un travail sur le tableau de bord vient de se terminer : le `.pyra/preview.json`
+  // a changé sous nos pieds, et attendre la fin de la minute afficherait la courbe
+  // d'avant le clic. L'horodatage de fin sert de sceau — il ne bouge qu'à ce
+  // moment-là, donc il ne rappelle rien tant qu'on ne touche à rien.
+  const stamp = p.preview?.endedAt || 0;
   const cur = previews.get(p.id);
-  if (cur && Date.now() - cur.at < PREVIEW_TTL) return cur.data;
+  if (cur && cur.stamp === stamp && Date.now() - cur.at < PREVIEW_TTL) return cur.data;
   // La tentative est notée AVANT de partir. Sans ça, un dossier qui répond en erreur
   // relancerait un appel à chaque rendu, soit quinze par minute pour rien.
-  previews.set(p.id, { at: Date.now(), data: cur?.data || null });
+  previews.set(p.id, { at: Date.now(), data: cur?.data || null, stamp });
   api("GET", `/api/projects/${p.id}/preview`)
-    .then((data) => { previews.set(p.id, { at: Date.now(), data }); render(); })
+    .then((data) => { previews.set(p.id, { at: Date.now(), data, stamp }); render(); })
     .catch(() => { /* l'aperçu est un supplément : son absence ne casse pas la page */ });
   return cur?.data || null;
 }
@@ -494,9 +499,275 @@ function bannerBand(p) {
   return band;
 }
 
+/* ------------------------------------------------- l'aperçu chiffré : l'objectif */
+
+// Ce que Pyra montrait jusqu'ici d'un projet, c'est ce qu'il EST : son README, sa
+// branche, ses langages. Rien là-dedans ne dit s'il est en train de gagner. Cette
+// bande-ci dit l'autre moitié — l'objectif du dépôt, et les deux ou trois nombres
+// qui montent (ou ne montent pas) vers lui : l'Elo d'un moteur, le total de
+// téléchargements, le rendement d'une stratégie.
+//
+// Elle ne coûte rien à la boucle des quatre secondes : les nombres viennent avec
+// `/api/projects/:id/preview`, la route à la demande, et l'état du travail avec
+// `/api/state` — un objet en mémoire, comme la génération et le graphe.
+//
+// Le geste qui la construit est le SEUL geste payant ici, et il est écrit en toutes
+// lettres sur le bouton. Ce qui suit — « ↻ Update » — ne relance que les commandes
+// que le modèle a écrites, en local : c'est ce qui permet d'appuyer tous les soirs.
+
+const BUILD_TITLE =
+  "Claude reads the repository, works out what this project is trying to reach,\n" +
+  "and writes ONE shell command per number that measures it.\n" +
+  "It does not run them — Pyra does, here, and only when you ask.\n" +
+  "The commands land in .pyra/preview.json, yours to correct. One to three minutes.";
+
+const UPDATE_TITLE =
+  "Runs each metric's command again and adds one point to its curve.\n" +
+  "No model, no tokens: this is the cheap half, and it is the one you repeat.";
+
+function buildButton(p, spec, cls) {
+  const busy = p.preview?.running;
+  const has = Boolean(spec?.metrics?.length);
+  const b = el("button", cls + (busy ? " busy" : ""));
+  b.textContent = busy && p.preview.kind === "build" ? "◌ Reading the repo…" : has ? "✦ Add a metric" : "✦ Build preview";
+  b.title = BUILD_TITLE;
+  b.disabled = busy || !p.exists;
+  b.onclick = () => runPreview(p, "build");
+  return b;
+}
+
+function updateButton(p, cls) {
+  const busy = p.preview?.running;
+  const b = el("button", cls + (busy ? " busy" : ""));
+  b.textContent = busy && p.preview.kind === "update" ? "◌ Measuring…" : "↻ Update";
+  b.title = UPDATE_TITLE;
+  b.disabled = busy || !p.exists;
+  b.onclick = () => runPreview(p, "update");
+  return b;
+}
+
+async function runPreview(p, kind) {
+  if (p.preview?.running) return;
+  try {
+    await api("POST", `/api/projects/${p.id}/preview${kind === "update" ? "/update" : ""}`);
+    // On peint tout de suite l'état « en cours » : le rafraîchissement suivant, quatre
+    // secondes plus tard, prendrait le relais trop tard pour que le clic ait l'air pris.
+    p.preview = { kind, running: true, startedAt: Date.now(), endedAt: 0, added: 0, read: 0, error: null };
+    render();
+  } catch (e) { alert((kind === "build" ? "Build" : "Update") + " failed: " + e.message); }
+}
+
+// Trois états, et un seul est une page vide. Tant que la route n'a pas répondu, la
+// bande ne s'affiche pas du tout : faire clignoter « aucun aperçu » puis des courbes
+// donnerait l'impression d'avoir tout perdu à chaque ouverture du projet.
+function goalBand(p, pv) {
+  const spec = pv?.goal;
+  const job = p.preview;
+  if (!pv && !job?.running) return null;
+
+  if (!spec?.metrics?.length) return emptyGoal(p, spec, job);
+
+  const band = el("div", "goal");
+
+  const head = el("div", "goal-h");
+  const t = el("div", "goal-t");
+  t.append(el("div", "pv-label", "Where this stands"));
+  if (spec.goal) t.append(el("div", "goal-s", spec.goal));
+  head.append(t, el("span", "grow"), updateButton(p, "btn"), buildButton(p, spec, "btn ghost"));
+  band.append(head);
+
+  const grid = el("div", "mxs" + (spec.metrics.length === 1 ? " one" : ""));
+  for (const m of spec.metrics) grid.append(metricCard(m));
+  band.append(grid);
+
+  const note = goalNote(p, spec);
+  if (note) band.append(note);
+  return band;
+}
+
+// La bande vide : un seul bouton, au milieu, et la phrase qui dit ce qu'il va faire —
+// y compris qu'il coûte quelque chose. C'est la même honnêteté que la case décochée
+// des réglages : on ne dépense pas à la place de quelqu'un sans le lui dire.
+function emptyGoal(p, spec, job) {
+  const band = el("div", "goal empty-goal");
+  if (job?.running) {
+    band.append(el("div", "eg-t", job.kind === "build" ? "Reading the repository…" : "Measuring…"));
+    band.append(el("div", "eg-s", "Claude is looking for what this project is trying to reach, and for a number that already measures it. One to three minutes."));
+    band.append(el("div", "eg-w"));
+    return band;
+  }
+  band.append(el("div", "eg-t", "No numbers on this project yet"));
+  band.append(el("div", "eg-s", "Pyra shows what the repository IS. This shows whether it is winning — the Elo of an engine, total downloads, the return of a strategy. Claude reads the repository, finds what it is aiming at, and writes one command per number. Updating afterwards costs nothing."));
+  band.append(buildButton(p, spec, "btn primary big"));
+  if (spec?.error) band.append(el("div", "gen err", "✕ " + spec.error));
+  else if (job?.error) band.append(el("div", "gen err", "✕ " + job.error));
+  // Un dépôt sans nombre à montrer est une réponse, pas une panne — un carnet de
+  // voyage ne « gagne » rien. Sans cette ligne, le bouton aurait juste l'air mort.
+  else if (job && !job.running && job.kind === "build" && !job.added && job.endedAt)
+    band.append(el("div", "gen", "Claude found nothing to count in this repository. Not every project has a score."));
+  return band;
+}
+
+// Ce que le dernier clic a donné. Une erreur reste affichée ; un succès s'efface au
+// bout de dix minutes, parce que le résultat est déjà sous les yeux, dans les courbes.
+function goalNote(p, spec) {
+  const j = p.preview;
+  const last = lastReading(spec);
+  const line = el("div", "gnote");
+  if (j?.error && !j.running) line.append(el("span", "bad", "✕ " + j.error));
+  else if (j && !j.running && j.endedAt && Date.now() - j.endedAt < 10 * 60 * 1000 && j.kind === "build" && j.added)
+    line.append(el("span", null, `✓ ${j.added} metric${j.added > 1 ? "s" : ""} added`));
+  if (last) line.append(el("span", "faint", `Last reading ${ago(last)}`));
+  line.append(el("span", "faint", "· .pyra/preview.json"));
+  return line;
+}
+
+const lastReading = (spec) =>
+  spec.metrics.reduce((t, m) => Math.max(t, m.points.length ? m.points[m.points.length - 1].at : 0), 0) || 0;
+
+/* ------------------------------------------------------------ une métrique */
+
+function metricCard(m) {
+  const c = el("div", "mx" + (m.error ? " bad" : ""));
+  const pts = m.points;
+  const last = pts[pts.length - 1] || null;
+  const prev = pts[pts.length - 2] || null;
+
+  const h = el("div", "mx-h");
+  h.append(el("span", "mx-l", m.label));
+  // La variation depuis le relevé précédent, et elle seule : « +18 depuis hier » est
+  // la question qu'on se pose en ouvrant un projet, pas « +59 depuis le début ».
+  if (last && prev) {
+    const d = last.v - prev.v;
+    const good = m.better === "down" ? d < 0 : d > 0;
+    if (d !== 0) h.append(el("span", "mx-d " + (good ? "up" : "down"), (d > 0 ? "▲ +" : "▼ ") + num(d, m)));
+    else h.append(el("span", "mx-d flat", "= flat"));
+  }
+  c.append(h);
+
+  const v = el("div", "mx-v");
+  v.append(el("span", null, last ? num(last.v, m) : "—"));
+  if (m.unit) v.append(el("i", null, m.unit));
+  c.append(v);
+
+  c.append(spark(pts, m));
+
+  // La cible, quand le dépôt en annonce une. La jauge est celle des tuiles — elle
+  // part du PREMIER relevé, pas de zéro : ce qu'on veut voir est le chemin parcouru
+  // depuis qu'on mesure, et un Elo qui va de 1800 à 2000 n'a jamais commencé à zéro.
+  if (m.target != null && last) {
+    const base = pts[0].v;
+    const span = m.target - base;
+    const r = span === 0 ? (m.better === "down" ? last.v <= m.target : last.v >= m.target) ? 1 : 0
+      : Math.max(0, Math.min(1, (last.v - base) / span));
+    const g = el("div", "gauge");
+    const i = el("i");
+    i.style.width = `${Math.round(r * 100)}%`;
+    g.append(i);
+    c.append(g);
+    const t = el("div", "mx-t");
+    t.append(el("b", null, `${Math.round(r * 100)} %`));
+    t.append(el("span", null, `of the way to ${num(m.target, m)}${m.unit ? " " + m.unit : ""}`));
+    c.append(t);
+  }
+
+  // D'où sort le nombre, puis la commande qui le sort. Elle est affichée parce que
+  // c'est Pyra qui la lance : une ligne de shell écrite par un modèle et exécutée
+  // sans jamais être montrée serait exactement ce que cette app refuse de faire.
+  if (m.source) c.append(el("div", "mx-s", m.source));
+  if (m.command) {
+    const cmd = el("code", "mx-c", m.command);
+    cmd.title = m.command;
+    c.append(cmd);
+  }
+  if (m.error) c.append(el("div", "mx-e", "✕ " + m.error));
+  else if (pts.length) c.append(el("div", "mx-n", `${pts.length} reading${pts.length > 1 ? "s" : ""} · since ${ago(pts[0].at)}`));
+  return c;
+}
+
+// Un nombre lisible sans réglage : le modèle propose `decimals`, et à défaut on prend
+// ce que l'ordre de grandeur commande — deux décimales sur un rendement, aucune sur
+// un compteur de téléchargements.
+function num(v, m) {
+  const a = Math.abs(v);
+  const d = m?.decimals != null ? m.decimals : a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3;
+  return v.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: d });
+}
+
+/* --------------------------------------------------------------- la courbe */
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs) => {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+};
+let sparkSeq = 0;
+
+// Une courbe sans dépendance, et sans axes : l'axe des ordonnées d'une mesure qu'on
+// suit soi-même n'apprend rien qu'un chiffre en gros ne dise mieux, et l'axe du temps
+// tient dans le « depuis dix jours » de la ligne du dessous. Ce qu'on veut voir, c'est
+// la FORME — est-ce que ça monte, est-ce que ça a plafonné.
+//
+// La HAUTEUR est fixe et la largeur suit la carte, donc le repère est étiré
+// (`preserveAspectRatio="none"`). C'est ce qui permet à une métrique seule de prendre
+// toute la bande sans devenir un panneau de 230 px de haut. Le prix de l'étirement est
+// que tout ce qui a une forme propre se déforme : le trait le refuse par
+// `vector-effect`, et il n'y a PAS de pastille sur les points — un cercle deviendrait
+// une ellipse quatre fois plus large que haute. Ce qu'elles disaient est ailleurs :
+// le dernier relevé est le grand nombre au-dessus, et leur nombre est écrit dessous.
+function spark(points, m) {
+  const W = 300, H = 78, PX = 2, PY = 8;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", class: "mx-g", role: "img" });
+  svg.setAttribute("aria-label", `${m.label} over time`);
+
+  // Un seul relevé n'a pas de courbe : un trait horizontal laisserait croire à une
+  // mesure stable, alors qu'on n'a encore rien comparé.
+  if (points.length < 2) {
+    svg.append(svgEl("line", { x1: PX, y1: H / 2, x2: W - PX, y2: H / 2, class: "mx-flat", "vector-effect": "non-scaling-stroke" }));
+    return svg;
+  }
+
+  // Le cadre tient à ce qui a été MESURÉ, et à rien d'autre. Y faire entrer la cible
+  // écrasait la courbe contre le bas : un Elo qui va de 1712 à 1834 devient une ligne
+  // plate dès qu'on ouvre l'axe jusqu'à 2000. La courbe montre la FORME, la jauge
+  // juste dessous montre le chemin restant — deux lectures, une question chacune.
+  const vs = points.map((p) => p.v);
+  let lo = Math.min(...vs), hi = Math.max(...vs);
+  const pad = (hi - lo) * 0.16 || Math.abs(hi) * 0.12 || 1;
+  lo -= pad; hi += pad;
+
+  // L'axe est le TEMPS, pas le rang du relevé : trois mesures en un soir puis une
+  // semaine de silence doivent se voir comme telles. Des relevés tous horodatés
+  // pareil (un fichier écrit à la main) retombent sur un espacement régulier.
+  const t0 = points[0].at, t1 = points[points.length - 1].at;
+  const x = (p, i) => PX + (W - 2 * PX) * (t1 === t0 ? i / (points.length - 1) : (p.at - t0) / (t1 - t0));
+  const y = (v) => H - PY - ((H - 2 * PY) * (v - lo)) / (hi - lo);
+
+  const id = "sg" + ++sparkSeq;
+  const defs = svgEl("defs", {});
+  const gl = svgEl("linearGradient", { id, x1: "0", y1: "0", x2: "1", y2: "0" });
+  gl.append(svgEl("stop", { offset: "0", "stop-color": "#6c34d6" }), svgEl("stop", { offset: ".52", "stop-color": "#4a45e8" }), svgEl("stop", { offset: "1", "stop-color": "#3c5bf5" }));
+  const gf = svgEl("linearGradient", { id: id + "f", x1: "0", y1: "0", x2: "0", y2: "1" });
+  gf.append(svgEl("stop", { offset: "0", "stop-color": "#4a45e8", "stop-opacity": ".16" }), svgEl("stop", { offset: "1", "stop-color": "#4a45e8", "stop-opacity": "0" }));
+  defs.append(gl, gf);
+  svg.append(defs);
+
+  const d = points.map((p, i) => `${i ? "L" : "M"}${x(p, i).toFixed(2)} ${y(p.v).toFixed(2)}`).join(" ");
+  svg.append(svgEl("path", { d: `${d} L${(W - PX).toFixed(2)} ${H} L${PX} ${H} Z`, fill: `url(#${id}f)`, stroke: "none" }));
+  svg.append(svgEl("path", {
+    d, fill: "none", stroke: `url(#${id})`, "stroke-width": "1.8",
+    "stroke-linejoin": "round", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke",
+  }));
+  return svg;
+}
+
 function previewPanel(p) {
   const box = el("section", "pv");
   const pv = preview(p);
+  box.append(bannerBand(p));
+  const band = goalBand(p, pv);
+  if (band) box.append(band);
 
   const left = el("div", "pv-main");
   left.append(el("div", "pv-label", "Preview"));

@@ -23,6 +23,7 @@ import * as R from "./repo.mjs";
 import * as F from "./forge.mjs";
 import * as S from "./settings.mjs";
 import * as U from "./usage.mjs";
+import * as PV from "./preview.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -192,6 +193,81 @@ function startGeneration(proj) {
   return job;
 }
 
+/* --------------------------------------------------------- l'aperçu chiffré */
+
+// Le tableau de bord d'un projet : son objectif et les nombres qui le mesurent. Même
+// forme que `gens` et `graphs` — un travail par projet, l'état lu au tour suivant de
+// `/api/state` — mais DEUX gestes derrière une seule carte, et ils ne coûtent pas la
+// même chose :
+//
+//   `build`  appelle le modèle. Il lit le dépôt et écrit une commande par métrique.
+//            C'est le geste payant, et il ne part que sur un clic.
+//   `update` ne fait que lancer ces commandes-là. Gratuit, quelques secondes, et
+//            c'est celui qu'on répète — la courbe s'allonge d'un point.
+//
+// Ni l'un ni l'autre n'est jamais déclenché par l'app elle-même. `/api/state` ne lit
+// même pas le fichier : les DONNÉES passent par `/api/projects/:id/preview`, qui est
+// une route à la demande, et seul l'état du travail vit ici, en mémoire.
+const previews = new Map(); // projectId -> { kind, running, startedAt, endedAt, added, read, error }
+
+function startPreview(proj, kind) {
+  const running = previews.get(proj.id);
+  if (running?.running) return running;
+
+  const job = { kind, running: true, startedAt: Date.now(), endedAt: 0, added: 0, read: 0, error: null };
+  previews.set(proj.id, job);
+
+  (async () => {
+    let spec = (await PV.read(proj.path)) || { goal: "", metrics: [] };
+    // Un fichier présent mais illisible n'est PAS un fichier absent : il porte du
+    // travail — des relevés, une commande corrigée à la main — derrière une virgule
+    // en trop. Repartir de zéro l'écraserait. On s'arrête, et on dit où regarder.
+    if (spec.error) throw new Error(spec.error + " — fix it, or move it aside, and press again");
+
+    if (kind === "build") {
+      const set = S.read();
+      const proposal = await PV.design({
+        project: proj,
+        spec,
+        bin: claudeBin(),
+        model: set.model || process.env.PYRA_MODEL || "",
+      });
+      // On RELIT le fichier après l'appel, comme la génération des étapes : deux
+      // minutes ont passé, et l'utilisateur a pu corriger une commande à la main
+      // pendant ce temps. Greffer sur la version d'avant lui passerait dessus.
+      const fresh = await PV.read(proj.path);
+      if (fresh?.error) throw new Error(fresh.error + " — it was edited while the model was reading; nothing was written");
+      spec = fresh || spec;
+      const g = PV.graft(spec, proposal);
+      spec = g.spec;
+      job.added = g.added + g.fixed;
+    }
+
+    // Tous les dépôts n'ont pas de nombre à montrer, et c'est une réponse valable —
+    // un carnet de voyage ne « gagne » rien. On n'écrit alors PAS de fichier vide chez
+    // lui : l'interface le dit, et le dépôt reste tel qu'il était avant le clic.
+    if (!spec.metrics.length) return;
+
+    // Un relevé suit toujours, y compris après un build : une métrique sans point est
+    // une promesse, pas une mesure, et le premier point est ce qui prouve que la
+    // commande proposée tient debout.
+    const r = await PV.collect(proj.path, spec);
+    job.read = r.read;
+    await PV.write(proj.path, r.spec);
+    // Une commande qui n'a rien rendu n'est pas une panne du bouton : c'est un fait,
+    // gardé dans le fichier à côté de sa métrique, et affiché sous elle. On ne le
+    // remonte ici QUE si aucune des commandes n'a marché — là, le clic n'a rien donné.
+    const bad = r.results.filter((x) => !x.ok);
+    if (bad.length && !r.read) job.error = bad.map((x) => `${x.key}: ${x.error}`).join(" · ").slice(0, 300);
+
+    autoSync(proj, kind === "build" ? "Preview — metrics" : "Preview — readings");
+  })()
+    .catch((e) => { job.error = String(e.message || e).slice(0, 300); })
+    .finally(() => { job.running = false; job.endedAt = Date.now(); });
+
+  return job;
+}
+
 /* ---------------------------------------------------- graphe de connaissance */
 
 // Même forme que `gens`, et pour la même raison : la construction dure de deux
@@ -352,6 +428,11 @@ async function buildState() {
       stats: M.stats(list),
       mainStats: M.stats(mains),
       gen: gens.get(p.id) || null,
+      // L'état du TRAVAIL, pas son résultat : construire l'aperçu chiffré ou relever
+      // ses métriques. Le fichier `.pyra/preview.json`, lui, n'est pas lu ici — ce
+      // serait un accès disque par projet toutes les quatre secondes, exactement ce
+      // que la règle du coût nul refuse. Il vient avec `/api/projects/:id/preview`.
+      preview: previews.get(p.id) || null,
       // Relu du GRAPH_REPORT.md du dépôt à chaque tour : l'app n'a pas de copie de
       // cet état, et un graphe construit à la main hors de Pyra se voit donc aussi.
       graph: exists ? { ...G.state(p.path), job: graphs.get(p.id) || null } : null,
@@ -681,7 +762,11 @@ const server = http.createServer(async (req, res) => {
       // L'aperçu porte aussi l'état du distant (branche, avance, retard). Deux
       // sous-processus de plus sur une route déjà à la demande, contre une ligne de
       // plus dans l'étage du haut — et c'est là qu'on veut la lire.
-      if (what === "preview") return json(res, 200, { ...(await R.overview(proj.path)), remote: await F.remoteState(proj.path) });
+      // L'aperçu porte trois choses désormais : ce que le dépôt dit de lui-même, l'état
+      // de son distant, et son tableau de bord — l'objectif et les nombres qui le
+      // mesurent. Une lecture de fichier de plus sur une route déjà à la demande.
+      if (what === "preview")
+        return json(res, 200, { ...(await R.overview(proj.path)), remote: await F.remoteState(proj.path), goal: await PV.read(proj.path) });
 
       if (what === "git") {
         const limit = Math.min(600, Math.max(20, Number(url.searchParams.get("limit")) || 250));
@@ -709,6 +794,26 @@ const server = http.createServer(async (req, res) => {
       if (job?.running) return json(res, 409, { error: "graph build already running" });
       startGraph(proj);
       return json(res, 202, { ok: true });
+    }
+
+    // Les deux gestes de l'aperçu chiffré, sur la même route que sa lecture : GET lit
+    // le tableau de bord, POST le construit (le modèle propose les métriques et leur
+    // commande), et POST /update se contente de relancer ces commandes. Le premier
+    // coûte des tokens et l'interface le dit ; le second est gratuit et se répète.
+    // Réponse immédiate dans les deux cas, l'état se lit dans /api/state.
+    const pvMatch = /^\/api\/projects\/([a-f0-9]+)\/preview(\/update)?$/.exec(p);
+    if (pvMatch && req.method === "POST") {
+      const proj = byId(pvMatch[1]);
+      if (!proj) return json(res, 404, { error: "unknown project" });
+      if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
+      const job = previews.get(proj.id);
+      if (job?.running) return json(res, 409, { error: "the preview is already being worked on" });
+      const kind = pvMatch[2] ? "update" : "build";
+      // Mettre à jour ce qui n'existe pas n'a pas de sens, et le dire vaut mieux que
+      // d'écrire un fichier vide dans le dépôt de quelqu'un.
+      if (kind === "update" && !PV.exists(proj.path)) return json(res, 400, { error: "no preview to update yet — build it first" });
+      startPreview(proj, kind);
+      return json(res, 202, { started: true });
     }
 
     // Pousser à la main ce que Pyra a écrit dans un dépôt. Le pendant manuel de la
