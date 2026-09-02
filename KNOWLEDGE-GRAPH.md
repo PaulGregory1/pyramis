@@ -1,4 +1,4 @@
-<!-- graph-baseline: f9f2b08 -->
+<!-- graph-baseline: c1c3aea -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -53,17 +53,26 @@ ce qu'un fichier écrit à la main pourrait contenir de plus profond.
 
 ## Le graphe de connaissance, et pourquoi il ne coûte rien
 
-Un projet qu'on ajoute au registre repart avec un graphe Graphify dans son
-`graphify-out/`. C'est le seul geste automatique de l'app, et il tient au fait qu'il
-est **gratuit** : `graphify extract --code-only` lit le code par AST, en local, sans
-clé d'API. Graphify sait aussi extraire le sens des docs, des papiers et des images —
-en envoyant leur contenu à un LLM. Cette porte reste fermée dans `graph.mjs`, et c'est
-la décision qui autorise l'automatisme : ajouter un projet ne doit jamais déclencher
-une dépense qu'on n'a pas demandée. Corollaire à connaître avant de s'étonner : un
-dépôt qui n'est que du markdown produit un graphe presque vide.
+Un projet que l'app **crée** repart avec un graphe Graphify dans son `graphify-out/`.
+Cet automatisme tient au fait qu'il est **gratuit** : `graphify extract --code-only`
+lit le code par AST, en local, sans clé d'API. Graphify sait aussi extraire le sens
+des docs, des papiers et des images — en envoyant leur contenu à un LLM. Cette porte
+reste fermée dans `graph.mjs`, et c'est la décision qui autorise l'automatisme :
+un geste que l'app déclenche seule ne doit jamais coûter un token.
 
-Les projets déjà suivis n'en ont pas reçu. Le bouton `◈ Build graph` est là pour eux,
-et pour les graphes que le dépôt a dépassés.
+**Il a changé de chemin le 2 septembre 2026.** Il se déclenchait à l'AJOUT d'un projet ;
+il se déclenche désormais à la CRÉATION. Un dossier déjà présent sur la machine existait
+avant l'app : il a son histoire, son `CLAUDE.md`, peut-être un travail en cours, et un
+geste non demandé sur un dépôt qu'on n'a pas fabriqué est une intrusion, fût-il gratuit.
+Le bouton `◈ Build graph` de la page du projet reste la voie pour eux — c'est un clic.
+
+Corollaire mesuré, pas deviné : **un projet qu'on vient de créer produit un graphe
+vide**, et Graphify le rend comme une erreur (« graph is empty — extraction produced
+no nodes »). Il n'a que son README, son `.gitignore` et son `MILESTONES.md` : du
+markdown, que `--code-only` ignore par construction. `startForge()` traduit donc ce
+cas en une ligne neutre — « no code yet » — plutôt qu'en rouge. Le peindre comme un
+échec apprendrait à l'utilisateur que la création rate toujours à moitié, et il
+cesserait de lire la liste.
 
 **Deux cartes, et elles ne disent pas la même chose.** Ce `KNOWLEDGE-GRAPH.md` est
 écrit à la main : il porte le *pourquoi* et les pièges, c'est-à-dire ce qu'aucune
@@ -107,6 +116,78 @@ des lettres à l'écran. C'est ce qui a permis de raccourcir PYRAMIS en PYRA —
 source est rognée après le Δ — sans que les quatre lettres restantes grossissent
 pour remplir la même largeur.
 
+## Les deux chemins d'entrée, et pourquoi ils divergent
+
+C'est la décision structurante du 2 septembre 2026, et tout le panneau des réglages
+existe pour la rendre visible.
+
+**Ajouter** (`POST /api/projects`) inscrit au registre un dossier qui était déjà là.
+Rien d'autre. Ce dépôt existait avant l'app : il a son histoire, son `CLAUDE.md`,
+peut-être un travail à moitié indexé. Un automatisme y serait une intrusion, même
+gratuit, même utile — la question n'est pas ce qu'il coûte, c'est qu'on ne l'a pas
+demandé.
+
+**Créer** (`POST /api/projects/new`) fabrique le dossier, puis déclenche ce qui est
+réglé : `git init`, le premier commit, `gh repo create`, le graphe, la synchro. Là,
+l'app ne peut rien abîmer — il n'y avait rien une seconde plus tôt.
+
+Trois conséquences à connaître avant de toucher au code :
+
+1. **Le drapeau vit dans le REGISTRE, pas dans les réglages.** Un projet créé porte
+   `created: true` et `auto: { sync: true }`. C'est lui, et non un réglage global, qui
+   autorise l'app à commiter chez lui. Un réglage global « synchroniser » se serait
+   appliqué le lendemain aux six projets ajoutés à la main, qui ne l'avaient jamais
+   demandé. La bascule par projet est dans `PATCH /api/projects/:id` (`b.sync`).
+2. **Le formulaire peut contredire les réglages sans les déplacer.** Décocher une case
+   dans « New project » vaut pour ce projet-ci ; `settings.json` n'est pas réécrit. Un
+   choix ponctuel qui déplacerait le réglage général se paierait au projet suivant.
+3. **L'installation est une TÂCHE DE FOND.** `gh repo create` parle au réseau ;
+   tenir la requête HTTP ouverte donnerait une interface figée sur un clic. Le
+   déroulé vit dans la map `forges` du serveur et ressort dans `/api/state`, comme la
+   génération et le graphe. Chaque geste garde sa ligne : un dépôt distant qui rate
+   n'efface pas le `git init` et les commits qui ont réussi avant lui.
+
+## Les réglages, et ce qu'ils ne contiennent pas
+
+Deux choses seulement : à QUI l'app parle, et ce qu'elle déclenche en créant.
+
+Le provider est une **table** (`PROVIDERS` dans `settings.mjs`), pas une suite de
+`if`. Claude est seul aujourd'hui ; le jour où un second arrive, il s'ajoute en ligne
+et rien d'autre ne bouge. Sans cette table, « claude » serait écrit en dur dans
+`generate.mjs`, `terminals.mjs` et l'interface, et le deuxième provider demanderait de
+rouvrir les trois. Le panneau montre l'état RÉEL du binaire — chemin résolu et
+version — plutôt qu'une promesse : une installation trop vieille se lit là, pas au
+premier échec de génération.
+
+**Aucun secret n'est stocké.** La connexion GitHub est celle de `gh`, qui tient déjà
+son jeton dans le trousseau du Mac ; `forge.github()` demande seulement s'il y en a
+un. Un secret que l'app ne stocke pas est un secret qu'elle ne peut pas laisser fuir.
+Corollaire : quand quelque chose manque, le panneau affiche la COMMANDE à taper
+(`gh auth login`, `brew install gh`), jamais un simple constat — l'utilisateur ne
+peut rien réparer depuis l'app, donc l'app doit lui dire où aller.
+
+Un seul automatisme dépense, la génération par le modèle, et il est le seul décoché
+par défaut. `test/settings.test.mjs` le vérifie explicitement : si ce test tombe un
+jour, c'est qu'on a coché une dépense à la place de quelqu'un.
+
+## La synchro git, et la seule forme qui la rende sûre
+
+`git commit -m … -- MILESTONES.md CLAUDE.md` commite la version DISQUE de ces
+chemins-là, quoi qu'il y ait dans l'index. C'est toute la garantie, et elle tient dans
+cette forme précise : au milieu d'un travail en cours, une modification à moitié
+indexée ailleurs n'est ni prise, ni perdue. Un `git add -A` aurait emporté les trois.
+`test/forge.test.mjs` monte exactement ce cas — un fichier non suivi, un modifié, un
+indexé — et vérifie que les trois sont intacts après le passage de Pyra.
+
+La liste `OWNED` est courte et doit le rester : chaque nom ajouté est un fichier de
+plus que l'app s'autorise à commiter chez quelqu'un d'autre. `graphify-out/` n'y est
+pas et n'a pas à y être — il est exclu via `.git/info/exclude`, donc il ne peut pas
+entrer dans un commit même par accident.
+
+**Un push qui échoue n'est pas un commit perdu.** Pas de réseau, pas d'amont, une
+branche divergée : le commit est fait, il attend. L'interface le dit ainsi, sans quoi
+l'utilisateur referait le geste en croyant avoir tout raté.
+
 ## Les fichiers
 
 | Fichier | Rôle |
@@ -116,7 +197,9 @@ pour remplir la même largeur.
 | `generate.mjs` | L'appel au modèle : un `claude -p` en lecture seule dans le dépôt. |
 | `prompts/milestones.md` | Le prompt de génération. Relu à chaque appel, donc modifiable à chaud. |
 | `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur, lecture pour la visionneuse. |
-| `repo.mjs` | Ce que le dépôt dit de lui-même : README, langages, branche, et l'histoire git mise en voies. Aucune dépendance au reste. |
+| `repo.mjs` | Ce que le dépôt dit de lui-même : README, langages, branche, et l'histoire git mise en voies. Git en LECTURE seule. Aucune dépendance au reste. |
+| `forge.mjs` | Le miroir en ÉCRITURE de `repo.mjs` : `git init`, premier commit, `gh repo create`, et la synchro. Seul module qui puisse modifier l'histoire d'un dépôt. |
+| `settings.mjs` | Les réglages : le provider (table, Claude seul aujourd'hui) et ce qui se déclenche à la création d'un projet. Vit hors du dépôt, à côté du registre. |
 | `terminals.mjs` | Les pseudo-terminaux. Un `claude` ou un shell réel par panneau. |
 | `public/app.js` | Toute l'UI. Pas de framework, pas d'étape de build. |
 | `electron/main.js` | La coquille Mac : une fenêtre, un menu, un ⌘Q. Importe `server.mjs`, ne décide rien. |
@@ -351,6 +434,44 @@ assumé de la règle « aucun appel au modèle ». Y toucher, c'est faire payer 
 que l'app déclenche toute seule. `--no-viz` épargne en plus un `graph.html` de
 plusieurs mégaoctets que personne n'ouvre depuis Pyra.
 
+**L'exclusion est posée AVANT la construction, pas après.** `graphify extract` crée
+le `graphify-out/` puis peut échouer — un dépôt neuf sans code, par exemple. Le dossier
+reste alors sur le disque. Tant que `exclude()` n'était appelée qu'en cas de succès,
+l'utilisateur retrouvait un artefact de construction dans son prochain `git add`. Vu
+sur le premier projet créé de bout en bout : `?? graphify-out/` dans un dépôt censé
+être propre.
+
+**Un README réduit à son titre EXISTE.** `readme()` rend `{ file, title, text: "" }`
+quand il n'y a pas un paragraphe de plus de 24 caractères. Le client testait
+`pv?.blurb?.text` et annonçait « No README in this repository » — faux pour tout projet
+qu'on vient de créer, et de nature à faire croire que la création a oublié un fichier.
+Les deux cas se distinguent maintenant.
+
+**`.gnote` est un `display:flex`, et un compte rendu est une COLONNE.** Le déroulé de
+l'installation emprunte la taille et la couleur de `.gnote`, mais pas sa direction :
+sans `.col`, ses quatre gestes se rangeaient côte à côte sur une seule ligne. Même
+famille de piège que les `" · "` mangés par le flex — les blancs de bord d'un item
+flex disparaissent, c'est le `gap` qui sépare, jamais une espace dans la chaîne.
+
+**Un dialogue ouvert par `showModal()` donne le focus à son premier bouton.** Ici
+« Close », qui s'allumait comme s'il était le geste attendu. `autofocus` sur l'élément
+`<dialog>` lui-même garde le focus sur le cadre. Dans le formulaire de création, le
+champ « Name » le prend — et c'est le bon endroit.
+
+**Les deux panneaux ont une adresse (`#s=settings`, `#s=new`).** Même raison que les
+visionneuses : la vérification visuelle se fait en headless, où personne ne clique. Un
+panneau sans adresse est un panneau qu'on ne peut regarder qu'à la main. Fermer un
+panneau efface son adresse — l'événement `close` du dialogue couvre les trois façons
+de fermer (le bouton, Échap, le clic hors cadre), ce que `showModal` ne fait pas seul.
+
+**`gh` n'est pas dans le PATH d'une app lancée depuis le Finder.** Exactement le même
+piège que `graphify`, et le même remède (`ghBin()`). `git`, lui, vit dans `/usr/bin`
+et n'a pas ce souci — c'est pourquoi un seul des deux binaires est cherché à la main.
+
+**`git commit` échoue sans identité, et son message fait douze lignes.** C'est la
+panne la plus fréquente d'un premier commit sur une machine neuve. `firstCommit()` la
+reconnaît et rend la commande à taper plutôt que le pavé de git.
+
 **L'exclusion va dans `.git/info/exclude`, jamais dans le `.gitignore`.** Le
 `.gitignore` appartient à l'utilisateur et part avec le dépôt s'il le publie. Une app
 de suivi n'a rien à écrire dans un fichier versionné — c'est le même principe que la
@@ -423,6 +544,20 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 - Aucun rafraîchissement automatique du graphe. Il se périme au fil des commits et
   c'est l'utilisateur qui appuie — `graphify watch` existe, mais un processus par
   projet suivi tournant en permanence n'a pas été jugé payant.
+- La synchro se déclenche sur ce que Pyra ÉCRIT (un enregistrement d'étapes, une
+  génération, une construction de graphe), pas sur une horloge. Un dépôt qui bouge
+  tout seul ne sera pas poussé.
+- Elle ne sait que pousser. Pas de `pull`, pas de résolution de conflit : une branche
+  divergée rend son échec et attend l'utilisateur. C'est délibéré — un `pull` qui
+  rate au milieu laisse un dépôt dans un état que l'app ne saurait pas défaire.
+- Un seul provider. La table est faite pour en accueillir d'autres, mais rien n'a été
+  écrit pour un second, et le champ « model » n'est validé par personne avant le CLI.
+- Le graphe d'un projet créé est vide par construction (rien que du markdown au
+  premier jour). Rien ne le reconstruit quand le code arrive : c'est un clic sur
+  `◈ Build graph`.
+- La création ne sait pas partir d'un modèle de projet : un README, un `.gitignore` de
+  deux lignes et trois milestones à remplacer. Deviner la pile d'un projet qui n'a pas
+  encore une ligne de code, c'est se tromper.
 - Les communautés du graphe ne sont pas nommées (« Community 0, 1, 2 »). Les nommer
   demanderait un appel au modèle, et c'est exactement ce que la construction s'interdit.
 - Les deux visionneuses ne modifient rien : on ne renomme pas une branche, on ne
@@ -462,7 +597,13 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer ce que Graphify extrait (docs, images, LLM) | `graph.mjs` (`build`), en pesant d'abord la règle « aucun appel au modèle » |
 | Retoucher le bloc greffé dans les `CLAUDE.md` | `graph.mjs` (`BLOCK`, `MARK_OPEN`), puis `test/graph.test.mjs` |
 | Changer ce que l'interface dit du graphe | `public/app.js` (`graphNote`, `graphButton`), `public/style.css` (`.gnote`) |
-| Cesser de construire un graphe à l'ajout d'un projet | `server.mjs` (`POST /api/projects`, le `b.graph !== false`) |
+| Changer ce qui se déclenche à la création d'un projet | `settings.mjs` (`DEFAULTS.create`), `server.mjs` (`startForge`), `public/app.js` (`CREATE_OPTS`) — les intitulés viennent d'une SEULE liste |
+| Ajouter un provider | `settings.mjs` (`PROVIDERS`), puis `server.mjs` (`/api/connections`, la résolution du binaire) |
+| Toucher à ce que l'app commite | `forge.mjs` (`OWNED`, `sync`), puis `test/forge.test.mjs` — chaque nom ajouté est un fichier de plus qu'on s'autorise chez quelqu'un d'autre |
+| Créer le dépôt distant autrement | `forge.mjs` (`createRemote`, `ghBin`) |
+| Changer le squelette d'un projet neuf | `forge.mjs` (`scaffold`, `starter`, `GITIGNORE`) |
+| Retoucher le panneau des réglages | `public/index.html` (`#settings`), `public/app.js` (`renderSettings`), `public/style.css` (`.sset`, `.frow`, `.opts`) |
+| Regarder un panneau en headless | son adresse : `#s=settings`, `#s=new` |
 | Ajouter une route | `server.mjs`, bloc `http` |
 | Toucher à la fenêtre, au menu, au ⌘Q | `electron/main.js` |
 | Changer ce que le bundle emporte, ou son identité | `scripts/make-app.sh` |
