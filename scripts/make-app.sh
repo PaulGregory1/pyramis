@@ -109,7 +109,7 @@ mkdir -p "$DEST"
 # sinon l'app packagée démarre… jusqu'au premier import manquant.
 cp "$REPO/package.json" "$REPO/server.mjs" "$REPO/milestones.mjs" "$REPO/terminals.mjs" \
    "$REPO/generate.mjs" "$REPO/graph.mjs" "$REPO/repo.mjs" "$REPO/forge.mjs" \
-   "$REPO/settings.mjs" "$REPO/usage.mjs" "$DEST/"
+   "$REPO/settings.mjs" "$REPO/usage.mjs" "$REPO/preview.mjs" "$DEST/"
 cp -R "$REPO/electron" "$REPO/public" "$REPO/prompts" "$DEST/"
 # Pas de projects.json : le registre vit dans ~/Library/Application Support/Pyra
 # (cf. registryPath dans server.mjs). Un registre embarqué serait écrit à chaque
