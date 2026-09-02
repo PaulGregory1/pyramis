@@ -1,4 +1,4 @@
-<!-- graph-baseline: 2e7ecd7 -->
+<!-- graph-baseline: 064fec4 -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -352,19 +352,22 @@ tous. D'où un dialogue qui ne pose que cette question — sauf s'il n'y a qu'un
 suivi, où la question n'en est pas une. Il a une adresse (`#s=term`) comme les deux
 autres panneaux, pour la même raison qu'eux.
 
-**`⤢` est devenu un plein cadre**, faute de colonnes à réduire. Le panneau seul à
-l'écran cache les autres (`[hidden]`, dit deux fois : un `display:flex` ignore
-l'attribut) et la case du « ＋ » disparaît avec eux.
+**`⤢` a cessé d'être un plein cadre.** Le panneau agrandi est POSÉ sur la grille, il ne
+la remplace plus : le plein cadre cachait les autres (`[hidden]`), et une grille où l'on
+ne voit plus ce qui tourne n'est plus une grille. Détail complet dans « Agrandir un
+panneau », plus bas.
 
 **Et le panneau tout entier est ce bouton.** Un clic n'importe où dans un panneau
-l'agrandit, un second le rend — `zoomTarget()`. Chercher un chevron de 12 px dans une
-grille de huit panneaux était le geste le plus fréquent de l'app et le plus mal servi ;
-le bouton reste, pour qu'on sache que la chose existe. Quatre endroits gardent leur
-propre sens du clic, et la règle se lit dans cet ordre : un bouton, le terminal (on y
-place un curseur, on y sélectionne), une ligne d'outil (elle se déplie), le détail
-déplié (on y lit). Cinquième garde, invisible mais nécessaire : relâcher une phrase
-surlignée n'est pas un clic — sans le test sur la sélection, sélectionner du texte
-dans la vue lisible agrandissait le panneau sous les doigts.
+l'agrandit — `zoomTarget()`. Chercher un chevron de 12 px dans une grille de huit
+panneaux était le geste le plus fréquent de l'app et le plus mal servi ; le bouton reste,
+pour qu'on sache que la chose existe, et s'efface une fois le panneau devant. On n'en
+SORT pas par le même geste : la croix de l'arrière-plan, ou l'arrière-plan lui-même. Un
+second clic refermerait le panneau au premier mouvement un peu large, et Échap appartient
+à `claude` — dans un terminal, c'est une touche comme une autre. Deux endroits gardent
+leur propre sens du clic : un bouton, et le terminal (on y place un curseur, on y
+sélectionne). Troisième garde, invisible mais nécessaire : relâcher une phrase surlignée
+n'est pas un clic — sans le test sur la sélection, sélectionner du texte dans un panneau
+l'agrandissait sous les doigts.
 
 ## Déposer une image dans un panneau
 
@@ -392,51 +395,57 @@ un pty depuis l'interface, pour qu'il n'y ait qu'un seul endroit où l'on pourra
 jour, ajouter un `\r` par mégarde. Vérifié à l'écran : Claude Code reconnaît le chemin
 et affiche `[Image #1]` dans son invite, sans partir.
 
-## La vue lisible d'un panneau
+## Agrandir un panneau
 
-**Un panneau montre deux choses du même flux, et l'une est POSÉE sur l'autre.** Le
-terminal est la vérité, à la colonne près. Mais ce n'est pas ce qu'on vient lire quand
-on tient huit sessions de front : on vient lire ce que Claude DIT, pas les quarante
-lignes du `Read` qu'il a faites pour pouvoir le dire. D'où la seconde surface, celle
-qui s'ouvre par défaut sur un panneau `claude` : les phrases en clair, et chaque outil
-réduit à une ligne — son nom, son argument, ce qu'il a rendu en un mot — qui se déplie
-au clic. Rien n'est jeté, tout est replié.
+**Il est posé sur la grille, pas mis à sa place.** `.pane.zoomed` passe en
+`position: fixed` : le nœud ne bouge pas d'un pouce dans le DOM, il sort du flux, et
+l'arrière-plan floute le reste au lieu de le masquer — les autres sessions continuent, on
+les voit du coin de l'œil sans pouvoir les lire par-dessus celle-ci. C'est aussi la seule
+façon de garder xterm intact : le déplacer dans le DOM lui ferait perdre sa boîte, et le
+pty renaîtrait à la mauvaise largeur, avec les mots coupés en travers que la temporisation
+de 150 ms existe déjà pour éviter.
 
-**Elle est DÉRIVÉE, jamais reçue.** Aucun octet de plus ne transite : on relit le
-tampon que xterm tient déjà (`readBlocks`). C'est la seule façon honnête de s'y prendre,
-et la différence n'est pas théorique — le flux brut est plein de déplacements de curseur
-et de réécritures en place, le CLI redessinant son bas de page à chaque image. Un
-analyseur branché sur le flux verrait l'invite se réécrire quarante fois par seconde et
-prendrait chaque brouillon pour une phrase. Le tampon, lui, est le texte une fois POSÉ.
+**Le fantôme n'est pas un détail de mise en page.** `.paneslot` prend la case laissée
+vide par le panneau sorti du flux. Sans lui, la grille se retasse derrière le flou, puis
+se retasse encore à la fermeture : deux redimensionnements de TOUS les pty, donc des mots
+coupés dans des sessions que personne n'avait touchées, pour un mouvement que personne
+n'avait demandé.
 
-**Le repérage est une heuristique, et c'est assumé parce qu'elle est réversible.** Un
-bloc s'ouvre sur le rond que le CLI pose en marge — `⏺` sur macOS, `●` ailleurs, les
-deux reconnus, sinon la vue serait pleine sur un Mac et vide partout ailleurs — et se
-ferme à la première ligne qui n'est ni vide ni en retrait. C'est ce qui fait que le
-cadre de saisie, dont les lignes commencent par « │ » à la colonne zéro, ne peut jamais
-passer pour une phrase. Un appel d'outil se reconnaît à son `Nom(argument)`, et à
-défaut au `⎿` qui suit — « Update Todos » n'a pas de parenthèses. Le jour où le CLI
-change sa mise en page, `</>` rend le vrai terminal en un clic et rien n'a été perdu :
-c'est cette porte de sortie qui autorise l'heuristique. `test/digest.test.mjs` rejoue
-une sortie complète, bannière et pied de page compris.
+**La croix vit sur l'arrière-plan, pas dans la barre de titre.** Celle du panneau ARRÊTE
+la session : deux croix à trois centimètres l'une de l'autre qui ne font pas la même
+chose est une faute qu'aucune infobulle ne rattrape. La gouttière du haut de `.pane.zoomed`
+est en pixels et non en `vh`, parce que c'est là que la croix se pose — une fenêtre courte
+la ferait chevaucher le panneau.
 
-**Une question à l'écran n'est pas du langage.** C'est un menu, et une frappe y vaut
-réponse. La vue lisible n'en montrerait rien, et l'utilisateur attendrait devant une
-page muette un `claude` qui, lui, attend une réponse. Le panneau rend donc le vrai
-terminal de lui-même dès que `BLOCKING` — le même motif qui retient le collage d'une
-étape — se lit dans la queue de sortie, et y revient quand la question est partie. Deux
-gardes : l'automatisme ne touche pas à un panneau dont on a demandé le terminal à la
-main (`pinRaw`), ni à celui où l'on est en train de taper. Déposer une étape ou un
-fichier pose ce verrou : ce qu'on vient d'écrire dans l'invite attend une touche Entrée
-qui n'appartient qu'à l'utilisateur, il faut donc qu'il le VOIE.
+**La vue lisible a été retirée, et c'est l'agrandi qui l'a rendue inutile.** Un panneau
+`claude` s'est ouvert un temps sur une seconde surface : les tours de parole relus dans le
+tampon de xterm, chaque outil replié en une ligne qu'un clic dépliait (`readBlocks`,
+`paintDigest`, `setReading`, `test/digest.test.mjs` — tout est dans `git log`, commit
+1f67f38). Ce qu'on venait y chercher, c'était lire une session sans plisser les yeux ;
+mettre le panneau devant le donne sans rien INTERPRÉTER. Ce qui reste à l'écran est ce que
+`claude` a écrit, à la colonne près, et rien d'autre — plus de repérage à tenir à jour
+contre la mise en page du CLI. Gardé ici pour que la question ne se repose pas sans son
+histoire.
 
-**Le rendu est réconcilié bloc à bloc.** Un bloc dont la signature n'a pas bougé garde
-son nœud, donc son repli ouvert et sa sélection ; tout refaire à chaque passage
-refermerait sous les doigts l'outil qu'on vient d'ouvrir. Et le tampon ne se relit ni à
-chaque octet (le CLI en écrit des milliers par seconde) ni sur toute sa longueur : un
-rendez-vous à 400 ms, les 1200 dernières lignes, et seulement pour les panneaux
-visibles. Au-delà de cette fenêtre le brut reste là — c'est lui la mémoire, la lecture
-n'est qu'une fenêtre sur le présent.
+## Le peintre du terminal
+
+**Par défaut, xterm dessine en DOM**, cellule par cellule : un coup de molette repasse par
+la mise en page du navigateur, ligne par ligne, et pour CHAQUE panneau qui reçoit du texte
+en même temps. C'est ce qui hachait le défilement là où Terminal.app glisse — lui peint
+sur le GPU. `gpu()` charge l'addon WebGL de xterm : même terminal, même thème, même
+feuille de style, seul le peintre change.
+
+**Et il sait se relâcher.** Deux façons de le perdre, les deux prévues. Le navigateur ne
+tient qu'une poignée de contextes WebGL à la fois — la grille se scindant seule, on peut
+ouvrir assez de panneaux pour qu'il retire le plus ancien — et une machine, ou un Chrome
+headless de capture, peut n'en donner aucun. Dans les deux cas l'addon est jeté
+(`onContextLoss`, ou le `try` autour de sa construction) et xterm revient au rendu DOM de
+lui-même. Un panneau qui défile moins bien vaut mieux qu'un panneau noir.
+
+**Le module doit voyager avec l'app.** `server.mjs` le sert sous `/vendor/addon-webgl.js`
+comme les deux autres, et `scripts/make-app.sh` VÉRIFIE sa présence dans le bundle : un
+module oublié là ne se voit qu'à l'exécution, dans l'app empaquetée, et jamais en
+`npm start`.
 
 ## Les deux visionneuses
 
@@ -570,20 +579,20 @@ Côté client, la première mesure est en plus temporisée de 150 ms (`resize()`
 passe par une taille intermédiaire plus large, et c'est elle qui partait. Les
 mesures suivantes sont de vrais redimensionnements et partent sans délai.
 
-**`.dhead` était déjà pris.** Les classes de la vue lisible s'appelaient `.dsay`,
-`.dtool`, `.dhead`… et `.dhead` est depuis toujours l'en-tête des visionneuses. Chaque
-ligne d'outil héritait donc de son `border-bottom` : un filet gris en travers de la vue,
-qu'aucune règle nouvelle n'expliquait. Vu à l'écran, pas deviné. Le préfixe est passé à
-`r*` (`.rsay`, `.rtool`, `.rhead`…). La leçon vaut au-delà : une feuille de style sans
-portée ni build est un espace de noms PLAT, et un nom de trois lettres y est presque
-sûrement déjà pris — `grep` avant de nommer.
+**`.dhead` était déjà pris.** Les classes de la vue lisible — retirée depuis — s'étaient
+appelées `.dsay`, `.dtool`, `.dhead`… et `.dhead` est depuis toujours l'en-tête des
+visionneuses. Chaque ligne d'outil héritait donc de son `border-bottom` : un filet gris en
+travers de la vue, qu'aucune règle nouvelle n'expliquait. Vu à l'écran, pas deviné. Le
+code est parti, la leçon reste : une feuille de style sans portée ni build est un espace
+de noms PLAT, et un nom de trois lettres y est presque sûrement déjà pris — `grep` avant
+de nommer. Les classes de l'agrandi (`.zback`, `.zclose`, `.zbtn`, `.paneslot`) sont
+passées par ce `grep`.
 
-**La vue lisible est POSÉE sur le terminal, pas mise à sa place.** Les deux vivent dans
-`.pbody`, en `position: absolute; inset: 0`. Un `display: none` sur le terminal lui
-ferait perdre ses dimensions, et `fit()` le remesurerait à zéro : au retour, le pty
-renaîtrait à la mauvaise largeur, avec les mots coupés en travers que la temporisation
-de 150 ms existe déjà pour éviter. Superposés, ils ne se touchent pas — la bascule ne
-coûte rien et `claude` ne s'aperçoit de rien.
+**Un panneau qu'on met devant ne se démonte pas.** Ni `appendChild` ailleurs, ni
+`display: none` sur le terminal : les deux lui font perdre ses dimensions, `fit()` le
+remesure à zéro, et le pty renaît à la mauvaise largeur — les mots coupés en travers que
+la temporisation de 150 ms existe déjà pour éviter. D'où le `position: fixed` et le
+fantôme plutôt qu'un déplacement, dans « Agrandir un panneau ».
 
 **Un `<dialog>` fermé ne doit son invisibilité qu'au navigateur.** `#settings` portait
 un `display: flex` NON conditionné, et le panneau des réglages restait peint par-dessus
@@ -794,7 +803,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 - L'ordre des projets dans la barre latérale est fixe : ceux qui ont des sessions
   actives ne remontent pas d'eux-mêmes.
 - Les panneaux ne se réordonnent pas et ne se déplacent pas à la souris : la grille
-  suit l'ordre de création, et le seul geste de mise en page est le plein cadre.
+  suit l'ordre de création, et le seul geste de mise en page est l'agrandissement.
 - Le mode de permission est global, pas par projet. Un dépôt qu'on préférerait tenir
   en `manual` demanderait un réglage par projet — donc un endroit où le garder, et le
   registre n'est pas fait pour ça.
@@ -850,9 +859,8 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Toucher au cycle de vie d'un terminal | `terminals.mjs` (`create` / `start` / `resize` / `kill`) |
 | Changer ce que Claude demande avant d'agir | `settings.mjs` (`PERMISSION_MODES`, `cliCommand`), puis `test/settings.test.mjs` — jamais `--permission-mode bypassPermissions` |
 | Changer la découpe de la grille des terminaux | `public/app.js` (`gridShape`, `layout`, les trois constantes `CELL_*`), jamais sans recapture headless |
-| Toucher à ce que la vue lisible reconnaît | `public/app.js` (`readBlocks`, les constantes `D_*`), puis `test/digest.test.mjs` |
-| Retoucher le rendu d'un bloc lisible | `public/app.js` (`blockNode`, `paintDigest`), `public/style.css` (`.rsay`, `.rtool`, `.rhead`…) — les noms courts sont un espace PLAT, `grep` avant d'en choisir un |
-| Changer quand un panneau montre le terminal plutôt que la lecture | `public/app.js` (`setReading`, le motif `BLOCKING`, le rendez-vous des 300 ms) |
+| Toucher à l'agrandissement d'un panneau | `public/app.js` (`setZoom`, `zoomBack`, `zoomSlot`, `layout`), `public/style.css` (`.pane.zoomed`, `.zback`, `.zclose`, `.paneslot`) — les noms courts sont un espace PLAT, `grep` avant d'en choisir un |
+| Toucher au peintre du terminal | `public/app.js` (`gpu`), `server.mjs` (`/vendor/addon-webgl.js`), `scripts/make-app.sh` (la liste des modules vérifiés) |
 | Changer ce qu'un clic fait dans un panneau | `public/app.js` (`zoomTarget`) — la liste des exceptions EST la règle |
 | Toucher au « ＋ » ou au choix du projet | `public/app.js` (`addTile`, `askTerminal`, `renderNewTerm`), `public/index.html` (`#newterm`), `public/style.css` (`.addpane`, `.tlist`) |
 | Toucher au dépôt d'un fichier dans un panneau | `public/app.js` (`dropTarget`, `dropFiles`, `typeInto`), `server.mjs` (`/drop`, `DROPS`, `readRaw`, `dropName`) |

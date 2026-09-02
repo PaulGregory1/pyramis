@@ -413,9 +413,7 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
 .grid { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 12px; overflow: auto; }
 
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-/* `hidden` ne suffit pas sur un `display:flex` : il faut le dire deux fois. Sans ça,
-   le plein cadre laissait les autres panneaux empilés sous lui. */
-.pane[hidden], .addpane[hidden] { display: none; }
+.addpane[hidden] { display: none; }
 .pane.dead { opacity: .5; }
 .pane > header {
   display: flex; align-items: center; gap: 9px; padding: 7px 11px;
@@ -428,53 +426,49 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
 .pane > header button:hover { color: var(--ink); background: var(--line); }
 .pane.flash { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 
-/* Le panneau tout entier agrandit au clic. La barre de titre le DIT — c'est la seule
-   partie qui n'a jamais d'autre sens, donc la seule qui puisse porter le curseur. */
-.pane > header { cursor: zoom-in; }
-.pane.solo > header { cursor: zoom-out; }
+/* Le panneau tout entier s'agrandit au clic. La barre de titre le DIT — c'est la seule
+   partie qui n'a jamais d'autre sens, donc la seule qui puisse porter le curseur. Et
+   c'est une MAIN, pas une loupe : on n'agrandit pas le texte du terminal, on met le
+   panneau devant. Une loupe promettrait un zoom qui n'existe pas. */
+.pane > header { cursor: pointer; }
+.pane.zoomed > header { cursor: default; }
 
-/* Les deux surfaces d'un panneau sont SUPERPOSÉES, jamais l'une à la place de l'autre :
-   le terminal garde sa boîte et sa taille sous la vue lisible, donc on passe de l'une
-   à l'autre sans que `claude` s'en aperçoive — ni reflux, ni mots coupés en travers.
-   Un `display: none` sur le terminal lui ferait perdre ses dimensions, et le pty
-   renaîtrait à la mauvaise largeur au retour. */
+/* Le terminal est posé en absolu dans son corps plutôt que d'être un simple enfant :
+   c'est ce qui lui donne une boîte à lui, que xterm mesure sans dépendre du reste de
+   la mise en page du panneau. */
 .pane .pbody { position: relative; flex: 1; min-height: 0; }
 .pane .term { position: absolute; inset: 0; padding: 8px 4px 4px 10px; }
-.pane .digest { position: absolute; inset: 0; display: none; overflow: auto; background: var(--panel); padding: 12px 14px 18px; }
-.pane.reading .digest { display: block; }
 
-/* --------------------------------------------- la vue lisible d'un panneau */
-.digest { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
-.rnone { margin: 0; color: var(--faint); font-size: 11.5px; max-width: 52ch; line-height: 1.6; }
+/* ------------------------------------------------ un panneau agrandi */
 
-/* Ce que Claude dit, et ce qu'on lui a dit. Les seuls blocs à l'encre pleine : tout le
-   reste de la vue n'est qu'un repère vers eux. */
-.rsay { white-space: pre-wrap; color: var(--ink); margin: 0 0 11px; }
-.ryou { display: flex; gap: 7px; margin: 0 0 11px; color: var(--dim); white-space: pre-wrap; }
-.ryou .rmark { color: var(--accent); font-weight: 700; flex: 0 0 auto; }
-
-/* Un outil tient en UNE ligne : son nom, son argument, et ce qu'il a rendu en un mot.
-   Le détail existe toujours — il est à un clic, et il n'occupe pas la page en
-   attendant qu'on le demande. C'est toute l'idée de la vue. */
-.rtool { margin: 0 0 4px; }
-.rhead {
-  display: flex; align-items: baseline; gap: 6px; width: 100%; text-align: left;
-  background: none; border: 0; font: inherit; font-size: 11.5px; color: var(--dim);
-  padding: 2px 5px; border-radius: 5px; cursor: pointer;
+/* Il est POSÉ sur la grille, pas mis à sa place : `fixed` le sort du flux sans le
+   déplacer dans le DOM — xterm garde son tampon, son défilement et sa sélection — et
+   le fantôme garde sa case dessous pour que rien ne se retasse derrière le flou.
+   La gouttière du haut est en pixels, pas en `vh` : c'est là que se pose la croix, et
+   une fenêtre courte la ferait chevaucher le panneau. */
+.pane.zoomed {
+  position: fixed; top: 52px; left: 5vw; right: 5vw; bottom: 4vh; z-index: 61;
+  box-shadow: 0 22px 64px #00082333;
 }
-.rhead:hover { background: var(--panel-2); color: var(--ink); }
-.rhead b { color: var(--ink-2); font-weight: 600; flex: 0 0 auto; }
-.rhead .rcar { display: inline-block; color: var(--faint); font-size: 11px; line-height: 1; flex: 0 0 auto; transition: transform .12s; }
-.rtool.open .rcar { transform: rotate(90deg); }
-.rhead .rarg, .rhead .rsum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rhead .rarg { color: var(--dim); flex: 0 1 auto; }
-.rhead .rsum { color: var(--faint); flex: 1 1 auto; min-width: 0; }
-/* Le détail est le TERMINAL, pas une paraphrase : même chasse, mêmes colonnes. */
-.rdet {
-  margin: 3px 0 10px; padding: 8px 10px; background: var(--panel-2); border-radius: var(--r-sm);
-  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-2);
-  white-space: pre-wrap; max-height: 340px; overflow: auto;
+.pane.zoomed > header .zbtn { display: none; }
+.paneslot { min-height: 0; }
+
+/* L'arrière-plan. Il floute au lieu de masquer : les autres sessions continuent, et on
+   doit pouvoir le voir du coin de l'œil sans pouvoir les lire par-dessus celle-ci. */
+.zback {
+  position: fixed; inset: 0; z-index: 60; background: #ffffff59;
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
 }
+.zback[hidden] { display: none; }
+/* La croix vit sur l'ARRIÈRE-PLAN, pas dans la barre de titre : celle du panneau
+   ARRÊTE la session, et deux croix voisines qui ne font pas la même chose est une
+   faute qu'aucune infobulle ne rattrape. Elle s'aligne sur le bord droit du panneau. */
+.zclose {
+  position: absolute; top: 12px; right: 5vw; width: 28px; height: 28px;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 50%;
+  color: var(--dim); font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+}
+.zclose:hover { color: var(--ink); border-color: var(--ink-2); }
 
 /* Le mode de permission du panneau. Discret quand il est celui qu'on attend, teinté
    quand Claude n'y demandera rien — c'est la seule chose qu'on veuille lire de loin. */
