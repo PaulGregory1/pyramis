@@ -40,18 +40,26 @@
       <div id="projects"></div>
       <button class="add" id="new-project">✦ New project</button>
       <button class="add" id="add-project">＋ Track a project</button>
+
+      <!-- Ce que le forfait a consommé. Il est ici, et pas seulement dans les réglages,
+           parce que c'est la question qu'on se pose EN travaillant : huit terminaux
+           Claude ouverts, la fenêtre de 5 h à 80 %, et l'on préfère le savoir avant de
+           lancer le neuvième. La version longue — la formule et les dates de remise à
+           zéro — vit dans les réglages. Un seul rendu peint les deux. -->
+      <div id="usage" class="use"></div>
     </aside>
 
     <section id="view-board" class="view"></section>
     <section id="view-terms" class="view hidden">
+      <!-- Plus de choix de colonnes : la grille se scinde toute seule, et le « ＋ »
+           est le seul geste qui reste. Un réglage que l'app peut prendre elle-même
+           n'a pas à occuper une barre qu'on regarde toute la journée. -->
       <div class="terms-bar">
-        <span class="hint">Every pane is a real terminal. Closing the tab does not kill the session.</span>
+        <span class="hint">Every pane is a real terminal. Closing the tab does not kill the session. Drop an image on a pane to attach it.</span>
         <span class="grow"></span>
-        <label class="cols">Columns
-          <select id="cols"><option>1</option><option selected>2</option><option>3</option></select>
-        </label>
+        <button class="btn ghost" id="new-term" title="Open another terminal">＋ Terminal</button>
       </div>
-      <div id="grid" class="grid cols-2"></div>
+      <div id="grid" class="grid"></div>
     </section>
   </main>
 
@@ -78,40 +86,87 @@
       <button class="btn ghost" id="settings-close">Close</button>
     </div>
 
-    <section class="sset">
-      <h4>Model provider</h4>
-      <div id="providers" class="prov"></div>
-      <label class="frow">
-        <span class="fl">Model</span>
-        <select id="set-model"></select>
-      </label>
-      <p class="fhint">Leave on <i>Default</i> to follow whatever the CLI picks.</p>
-    </section>
+    <!-- Une barre latérale, pour la même raison que celle de l'app : quatre sections
+         empilées se lisaient comme une page longue, où la consommation du forfait — la
+         seule qu'on vienne consulter plusieurs fois par jour — se trouvait tout en bas.
+         Chaque section a une adresse (`#s=settings&sp=usage`), comme les vues. -->
+    <div class="sbody">
+      <nav class="snav" id="set-nav" role="tablist" aria-label="Settings sections">
+        <button type="button" role="tab" class="on" data-pane="model" aria-selected="true">
+          <span class="sd"></span>Model provider
+        </button>
+        <button type="button" role="tab" data-pane="perm" aria-selected="false">
+          <span class="sd"></span>Terminals
+        </button>
+        <button type="button" role="tab" data-pane="usage" aria-selected="false">
+          <span class="sd"></span>Plan usage
+        </button>
+        <button type="button" role="tab" data-pane="conn" aria-selected="false">
+          <span class="sd"></span>Connections
+        </button>
+        <button type="button" role="tab" data-pane="create" aria-selected="false">
+          <span class="sd"></span>New projects
+        </button>
+      </nav>
 
-    <section class="sset">
-      <h4>Connections</h4>
-      <div id="conn-github" class="conn"></div>
-      <label class="frow">
-        <span class="fl">New repositories</span>
-        <select id="set-visibility">
-          <option value="private">Private</option>
-          <option value="public">Public</option>
-        </select>
-      </label>
-      <label class="frow">
-        <span class="fl">Default branch</span>
-        <input id="set-branch" type="text" spellcheck="false" autocomplete="off">
-      </label>
-    </section>
+      <div class="spanes">
+        <section class="sset spane" data-pane="model">
+          <h4>Model provider</h4>
+          <div id="providers" class="prov"></div>
+          <label class="frow">
+            <span class="fl">Model</span>
+            <select id="set-model"></select>
+          </label>
+          <p class="fhint">Leave on <i>Default</i> to follow whatever the CLI picks.</p>
+        </section>
 
-    <section class="sset">
-      <h4>When creating a project</h4>
-      <p class="fhint">
-        These run only for projects Pyra creates from scratch. Adding a folder that is
-        already on this machine stays exactly what it was — nothing is triggered.
-      </p>
-      <div id="create-opts" class="opts"></div>
-    </section>
+        <!-- Le mode de permission ne vaut QUE pour les panneaux : la génération
+             d'étapes, elle, tourne en lecture seule et ne demande jamais rien. Deux
+             choses différentes, deux endroits différents. -->
+        <section class="sset spane" data-pane="perm" hidden>
+          <h4>What Claude asks before acting</h4>
+          <p class="fhint">
+            Chosen when a pane opens, and fixed for its whole life — changing it here
+            never turns around a session that is already running.
+          </p>
+          <div id="perm-modes" class="opts"></div>
+        </section>
+
+        <section class="sset spane" data-pane="usage" hidden>
+          <h4>Plan usage</h4>
+          <div id="set-usage" class="use wide"></div>
+          <p class="fhint">
+            Read from the CLI, which asks your own account — Pyra never sees the token.
+            Asking costs no tokens: it is a control request, not a turn of the model.
+          </p>
+        </section>
+
+        <section class="sset spane" data-pane="conn" hidden>
+          <h4>Connections</h4>
+          <div id="conn-github" class="conn"></div>
+          <label class="frow">
+            <span class="fl">New repositories</span>
+            <select id="set-visibility">
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+          </label>
+          <label class="frow">
+            <span class="fl">Default branch</span>
+            <input id="set-branch" type="text" spellcheck="false" autocomplete="off">
+          </label>
+        </section>
+
+        <section class="sset spane" data-pane="create" hidden>
+          <h4>When creating a project</h4>
+          <p class="fhint">
+            These run only for projects Pyra creates from scratch. Adding a folder that is
+            already on this machine stays exactly what it was — nothing is triggered.
+          </p>
+          <div id="create-opts" class="opts"></div>
+        </section>
+      </div>
+    </div>
   </dialog>
 
   <!-- Créer un projet de zéro. Le formulaire reprend les réglages comme défauts et
@@ -145,6 +200,19 @@
       <span class="grow"></span>
       <button class="btn primary" id="new-go" type="button">Create</button>
     </menu>
+  </dialog>
+
+  <!-- Ouvrir un panneau demande une seule chose : dans quel projet. Le dialogue a
+       une adresse (`#s=term`) comme les deux autres — un panneau qu'on ne peut pas
+       ouvrir sans clic est un panneau qu'aucune capture headless ne verra. -->
+  <dialog id="newterm" tabindex="-1" autofocus>
+    <div class="dhead flat">
+      <h3>New terminal</h3>
+      <span class="grow"></span>
+      <button class="btn ghost" id="newterm-close">Close</button>
+    </div>
+    <p class="fhint">A pane is a real terminal, opened in that project's folder.</p>
+    <ul id="newterm-list" class="tlist"></ul>
   </dialog>
 
   <!-- Les deux visionneuses du haut de page. Elles sont en LECTURE SEULE : le graphe

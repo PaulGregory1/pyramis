@@ -35,6 +35,7 @@
   --todo: #7b849c;
   --doing: #6c34d6;
   --blocked: #d1345b;
+  --warn: #b8760e;
   --done: #158a68;
 
   --r: 12px;
@@ -122,6 +123,39 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
   font: inherit; font-size: 12.5px; padding: 9px; border-radius: var(--r-sm); cursor: pointer;
 }
 .add:hover { color: var(--ink); border-color: var(--faint); }
+
+/* ------------------------------------------- la consommation du forfait */
+/* Poussé en bas du rail par `margin-top: auto` : c'est un pied de page, pas une
+   entrée de plus dans la liste des projets. Le même bloc sert dans les réglages,
+   où `.wide` lui rend la place d'écrire les dates de remise à zéro. */
+.use { margin-top: auto; padding: 13px 10px 2px; border-top: 1px solid var(--line); }
+.use-head {
+  display: flex; align-items: center; gap: 7px; margin-bottom: 10px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: var(--track); color: var(--dim);
+}
+.use-plan { text-transform: uppercase; letter-spacing: .06em; font-weight: 600; font-size: 9.5px;
+  color: var(--dim); background: var(--panel-2); border-radius: 4px; padding: 1px 5px; }
+.use-ref { margin-left: auto; background: none; border: 0; color: var(--faint); cursor: pointer;
+  font: inherit; font-size: 12px; line-height: 1; padding: 2px 3px; border-radius: 5px; }
+.use-ref:hover:not(:disabled) { color: var(--ink); background: var(--panel-2); }
+.use-ref:disabled { opacity: .4; cursor: default; }
+.use-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--faint); }
+.use-item + .use-item { margin-top: 11px; }
+.use-line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.use-nm { color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.use-pc { margin-left: auto; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.use-track { height: 4px; margin-top: 5px; border-radius: 999px; background: var(--line); overflow: hidden; }
+/* `i` et non un pseudo-élément : la largeur vient de la donnée, elle s'écrit en style
+   inline. La couleur ne dit rien tant qu'il n'y a rien à dire — le dégradé est réservé
+   à l'avancement, et un forfait qui se remplit n'est pas une réussite. */
+.use-track i { display: block; height: 100%; border-radius: 999px; background: var(--ink-2); transition: width .25s ease; }
+.use-track i.warm { background: var(--warn); }
+.use-track i.hot { background: var(--blocked); }
+.use-reset { margin-top: 4px; font-size: 10.5px; color: var(--faint); }
+.use.wide { margin: 0; padding: 0; border-top: 0; max-width: 380px; }
+.use.wide .use-head { display: none; } /* le titre de section le dit déjà */
+.use.wide + .fhint { margin-top: 14px; } /* la note ne colle pas à la dernière barre */
 
 /* --------------------------------------------------- sessions du projet */
 .sessions { margin: 0 0 9px 24px; padding-left: 11px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
@@ -363,15 +397,15 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
 }
 .terms-bar .hint { color: var(--faint); font-size: 11.5px; }
 .terms-bar .grow { flex: 1; }
-.cols { color: var(--dim); font-size: 11.5px; display: flex; align-items: center; gap: 7px; }
-.cols select { background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 6px; font: inherit; }
+/* Les colonnes sont posées par `layout()` en style en ligne : le nombre dépend du
+   nombre de panneaux ET de la forme de la fenêtre, ce qu'une feuille de style ne sait
+   pas. Elle garde ce qui est constant — la gouttière, la marge, le défilement. */
+.grid { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 12px; overflow: auto; }
 
-.grid { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 12px; overflow: auto; align-content: start; }
-.grid.cols-1 { grid-template-columns: 1fr; }
-.grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-
-.pane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); display: flex; flex-direction: column; overflow: hidden; min-height: 240px; }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+/* `hidden` ne suffit pas sur un `display:flex` : il faut le dire deux fois. Sans ça,
+   le plein cadre laissait les autres panneaux empilés sous lui. */
+.pane[hidden], .addpane[hidden] { display: none; }
 .pane.dead { opacity: .5; }
 .pane > header {
   display: flex; align-items: center; gap: 9px; padding: 7px 11px;
@@ -384,7 +418,49 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
 .pane > header button:hover { color: var(--ink); background: var(--line); }
 .pane .term { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; }
 .pane.flash { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
-.blank { color: var(--faint); padding: 48px; text-align: center; grid-column: 1 / -1; font-size: 12.5px; }
+
+/* Le mode de permission du panneau. Discret quand il est celui qu'on attend, teinté
+   quand Claude n'y demandera rien — c'est la seule chose qu'on veuille lire de loin. */
+.pane > header .pmode {
+  font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--faint);
+  border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 6px; white-space: nowrap;
+}
+.pane > header .pmode.hot { color: #9a6a12; border-color: #e6d3a8; background: #9a6a1210; }
+
+/* Un fichier survole un panneau. Sans ce cadre, rien ne dit que le geste va aboutir —
+   et le navigateur, lui, ne montre qu'un curseur. */
+.pane.drop { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.pane.busy { opacity: .75; }
+
+/* La case libre. Transparente et en pointillés : c'est un EMPLACEMENT, pas un panneau
+   de plus, et il doit se lire comme le trou qu'il occupe. */
+.addpane {
+  /* Le pointillé est plus SOMBRE que le trait d'un panneau : un tiret sur deux étant
+     du vide, un pointillé de la même couleur se lit deux fois plus pâle et l'on ne
+     voit plus la case. Mesuré à l'écran, pas choisi à l'œil. */
+  border: 1.5px dashed #c3c8d8; border-radius: var(--r); background: none;
+  color: var(--faint); font: inherit; cursor: pointer; min-height: 0; padding: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+}
+.addpane:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.addpane .plus { font-size: 20px; line-height: 1; }
+.addpane .lab { font-size: 12px; letter-spacing: var(--track); text-transform: uppercase; font-weight: 600; }
+/* La phrase d'accueil ne sert qu'à la grille VIDE : dans un trou de grille, elle
+   ferait un pavé de texte là où on attend un bouton. */
+.addpane .hint { display: none; font-size: 11.5px; color: var(--faint); max-width: 46ch; text-align: center; line-height: 1.55; }
+.addpane.alone .hint { display: block; }
+
+/* Le choix du projet, à l'ouverture d'un panneau. Deux gestes par ligne, et le
+   premier est le bon neuf fois sur dix — d'où un « shell » en retrait. */
+.tlist { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+.tlist li { display: flex; align-items: center; gap: 6px; }
+.tlist button { background: none; border: 0; color: var(--ink); font: inherit; font-size: 12.5px; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
+.tlist button:hover { background: var(--panel-2); }
+.tlist .tmain { flex: 1; display: flex; align-items: center; gap: 9px; text-align: left; min-width: 0; }
+.tlist .tmain .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tlist .tmain .tp { color: var(--faint); font-size: 11px; margin-left: auto; }
+.tlist .tsh { color: var(--faint); font-size: 11px; border: 1px solid var(--line); }
+.tlist .tsh:hover { color: var(--ink); }
 
 /* -------------------------------------------------------------- dialogue */
 dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; padding: 20px; width: min(520px, 92vw); box-shadow: 0 16px 44px #0008231f; }
@@ -417,11 +493,56 @@ dialog menu button { background: var(--panel); border: 1px solid var(--line-2); 
 .gear svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; }
 .gear svg .teeth { stroke-width: 2; }
 
-#settings, #creator { width: min(560px, 94vw); padding: 0 20px 20px; max-height: 88vh; overflow-y: auto; }
+#creator { width: min(560px, 94vw); padding: 0 20px 20px; max-height: 88vh; overflow-y: auto; }
 .dhead.flat {
   position: sticky; top: 0; z-index: 1;
   margin: 0 -20px 4px; padding: 15px 14px 11px 20px;
   background: var(--panel); border-bottom: 1px solid var(--line);
+}
+
+/* Le panneau des réglages a sa propre barre latérale, et c'est elle qui fixe sa
+   forme : une hauteur tenue (sinon le rail flotterait à côté d'une seule ligne de
+   formulaire), l'en-tête figé en haut des deux colonnes, et le défilement à
+   l'intérieur du volet — jamais sur le dialogue entier, sinon le rail défilerait
+   avec son contenu. Le dessin du rail est celui du rail de l'app : même pastille,
+   même `--panel-2` pour l'actif. Deux barres latérales qui ne se ressemblent pas
+   feraient croire à deux mécanismes différents. */
+/* Le `display` est sur `[open]`, JAMAIS sur `#settings` seul : un `<dialog>` fermé
+   ne doit son invisibilité qu'au `display: none` de la feuille du navigateur, et le
+   lui reprendre laisse le panneau peint par-dessus la page en permanence. Même forme
+   que `dialog.big[open]` plus bas — la sélection est la moitié de la règle. */
+#settings { width: min(740px, 95vw); height: min(560px, 88vh); padding: 0; overflow: hidden; }
+#settings[open] { display: flex; flex-direction: column; }
+#settings .dhead.flat { position: static; flex: 0 0 auto; margin: 0; padding: 15px 14px 11px 20px; }
+.sbody { flex: 1; display: flex; min-height: 0; }
+.snav {
+  flex: 0 0 178px; padding: 12px 10px; overflow-y: auto;
+  border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px;
+}
+.snav button {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  background: none; border: 0; color: var(--ink-2); font: inherit; font-size: 12.5px;
+  cursor: pointer; padding: 8px 10px; border-radius: var(--r-sm);
+}
+.snav button:hover { background: var(--panel-2); color: var(--ink); }
+.snav button.on { background: var(--panel-2); color: var(--ink); font-weight: 550; }
+.snav .sd { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); flex: 0 0 6px; }
+.snav button.on .sd { background: var(--grad); }
+.spanes { flex: 1; min-width: 0; overflow-y: auto; padding: 4px 20px 20px; }
+.spanes .sset { border-bottom: 0; padding: 13px 0 4px; }
+
+/* Fenêtre étroite : le rail passe au-dessus en bande défilante. 178 px de moins
+   étrangleraient les lignes de formulaire, qui alignent déjà un intitulé de 128 px
+   et son contrôle. */
+@media (max-width: 660px) {
+  #settings { height: min(600px, 90vh); }
+  .sbody { flex-direction: column; }
+  .snav {
+    flex: 0 0 auto; flex-direction: row; align-items: center; gap: 5px;
+    overflow-x: auto; overflow-y: hidden; padding: 9px 14px;
+    border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .snav button { flex: 0 0 auto; }
 }
 
 .sset { padding: 15px 0; border-bottom: 1px solid var(--line); }
@@ -487,6 +608,9 @@ dialog menu button { background: var(--panel); border: 1px solid var(--line-2); 
 }
 .tag.free { color: var(--done); background: color-mix(in srgb, var(--done) 11%, transparent); }
 .tag.cost { color: #9a6a12; background: #9a6a1219; }
+/* Un mode qui n'attend rien de l'utilisateur engage autant qu'une dépense : il a donc
+   son étiquette, dans le même registre que celle qui coûte. */
+.tag.hot { color: #b03a2e; background: #b03a2e14; }
 
 /* L'installation d'un projet qu'on vient de créer, telle qu'elle se déroule. Chaque
    geste garde sa ligne : un échec au milieu n'efface pas ce qui a réussi avant. */

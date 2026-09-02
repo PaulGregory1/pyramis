@@ -14,7 +14,7 @@ const STATUS = {
 };
 const ORDER = ["todo", "doing", "blocked", "done"];
 
-const state = { data: null, selected: "", view: "board", filter: "all", dialog: "", panel: "" };
+const state = { data: null, selected: "", view: "board", filter: "all", dialog: "", panel: "", setPane: "model", solo: "" };
 const panes = new Map(); // id -> { term, fit, ws, root, seed, lastData, booted }
 
 /* ------------------------------------------------------------------ état */
@@ -30,8 +30,23 @@ async function api(method, url, body) {
   return out;
 }
 
+// La table des modes ne change pas d'un tour à l'autre, et elle doit être là AVANT le
+// premier rendu : l'en-tête d'un panneau est peint une seule fois, à sa naissance, et
+// garderait sinon l'identifiant brut du CLI pour toute sa vie. Demandée une fois, et
+// une seule même en cas d'échec — la boucle des quatre secondes n'a pas à réessayer.
+let modesAsked = false;
+async function loadModes() {
+  modesAsked = true;
+  try {
+    const r = await api("GET", "/api/settings");
+    providers = r.providers;
+    permModes = r.permissionModes || [];
+  } catch {}
+}
+
 async function refresh() {
   try {
+    if (!modesAsked) await loadModes();
     state.data = await api("GET", "/api/state");
     $("#err").textContent = state.data.agentsError || "";
     render();
@@ -114,6 +129,10 @@ function focusPane(id) {
   showView("terms");
   const pane = panes.get(id);
   if (!pane) return;
+  // Aller à un panneau alors qu'un AUTRE est seul à l'écran ne peut pas vouloir dire
+  // « reste sur celui-là » : on quitte le plein cadre plutôt que de faire défiler
+  // vers un panneau invisible.
+  if (state.solo && state.solo !== id) { state.solo = ""; layout(); }
   pane.root.scrollIntoView({ block: "nearest", behavior: "smooth" });
   pane.root.classList.add("flash");
   setTimeout(() => pane.root.classList.remove("flash"), 900);
@@ -1251,6 +1270,39 @@ function simulate(host, data) {
 
 /* ------------------------------------------------------------ terminaux */
 
+// Le « ＋ » ne peut pas deviner le projet : la grille tient les panneaux de tous.
+// D'où un dialogue qui ne pose que cette question-là. Un seul projet suivi n'en vaut
+// pas la peine — on l'ouvre directement.
+function askTerminal() {
+  const list = state.data?.projects || [];
+  if (list.length === 1) return openTerminal(list[0].id, "claude");
+  state.panel = "term";
+  writeHash();
+  render();
+}
+
+function renderNewTerm() {
+  const host = $("#newterm-list");
+  host.textContent = "";
+  const list = state.data?.projects || [];
+  if (!list.length) { host.append(el("li", "empty", "No project tracked yet.")); return; }
+  for (const p of list) {
+    const li = el("li");
+    const go = el("button", "tmain");
+    go.append(el("span", "pe", p.emoji), el("span", "tn", p.name));
+    const live = p.terminals.filter((t) => t.alive).length;
+    if (live) go.append(el("span", "tp", live > 1 ? `${live} panes` : "1 pane"));
+    go.onclick = () => { $("#newterm").close(); openTerminal(p.id, "claude"); };
+    // Le shell est le second geste, pas le premier : on vient ici pour ouvrir un
+    // Claude neuf fois sur dix.
+    const sh = el("button", "tsh", "shell");
+    sh.title = "A plain login shell in this folder";
+    sh.onclick = () => { $("#newterm").close(); openTerminal(p.id, "shell"); };
+    li.append(go, sh);
+    host.append(li);
+  }
+}
+
 async function openTerminal(projectId, kind, seed, label) {
   try {
     const { id } = await api("POST", "/api/terminals", { projectId, kind, label });
@@ -1267,23 +1319,22 @@ function renderTerms() {
   const live = state.data.projects.flatMap((p) => p.terminals.map((t) => ({ ...t, project: p })));
   const wanted = new Set(live.map((t) => t.id));
 
+  let moved = false;
   for (const [id, pane] of panes) {
-    if (!wanted.has(id)) { pane.ws?.close(); pane.term.dispose(); pane.root.remove(); panes.delete(id); layout(); }
+    if (wanted.has(id)) continue;
+    pane.ws?.close(); pane.term.dispose(); pane.root.remove(); panes.delete(id);
+    moved = true;
   }
 
   $("#term-count").textContent = String(live.filter((t) => t.alive).length);
-  $$(".blank", grid).forEach((n) => n.remove());
-  if (!live.length) {
-    grid.append(el("div", "blank", "No terminal yet. Open one from a project, or from the ▶ button of a milestone."));
-    return;
-  }
-
-  const before = panes.size;
   for (const t of live) {
     if (panes.has(t.id)) { panes.get(t.id).root.classList.toggle("dead", !t.alive); continue; }
     grid.append(makePane(t));
+    moved = true;
   }
-  if (panes.size !== before) layout();
+  // Le mot d'accueil de la grille vide vit maintenant DANS la case du « ＋ » : c'est
+  // le même endroit, et il n'y a plus deux façons de dire « aucun terminal ».
+  if (moved) layout();
 }
 
 function makePane(t) {
@@ -1292,6 +1343,14 @@ function makePane(t) {
   head.append(el("span", null, t.project.emoji));
   head.append(el("span", "name", t.label || t.project.name));
   head.append(el("span", "kind", t.kind));
+  // Le mode de permission du panneau, tel qu'il a été LANCÉ. Il est écrit ici et pas
+  // seulement dans les réglages parce que c'est là qu'on en a besoin : savoir qu'un
+  // Claude n'attendra rien avant d'agir se lit au-dessus de lui, pas trois clics plus
+  // loin. Un panneau ouvert avant un changement de réglage garde le sien, et le dit.
+  if (t.mode) {
+    const m = permMode(t.mode);
+    head.append(el("span", "pmode" + (m?.tone === "hot" ? " hot" : ""), m?.short || t.mode));
+  }
   head.append(el("span", "grow"));
 
   // Le collage automatique peut rater (un dialogue de Claude l'avale). Ce bouton
@@ -1302,9 +1361,11 @@ function makePane(t) {
   paste.onclick = () => pasteSeed(t.id);
   head.append(paste);
 
+  // Le plein cadre a remplacé « une seule colonne » : les colonnes ne se choisissent
+  // plus à la main, mais on veut toujours pouvoir n'en regarder qu'un.
   const solo = el("button", null, "⤢");
-  solo.title = "Single column";
-  solo.onclick = () => { $("#cols").value = "1"; setCols(); };
+  solo.title = "Show this pane alone";
+  solo.onclick = () => { state.solo = state.solo === t.id ? "" : t.id; layout(); };
   const close = el("button", null, "✕");
   close.title = "Close and stop the session";
   close.onclick = async () => {
@@ -1334,7 +1395,7 @@ function makePane(t) {
   term.loadAddon(fit);
   term.open(host);
 
-  const pane = { term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false, sized: false, sizeTimer: null, pasteBtn: paste };
+  const pane = { term, fit, root, ws: null, seed: null, text: null, tail: "", lastData: 0, booted: false, sized: false, sizeTimer: null, pasteBtn: paste, soloBtn: solo };
   panes.set(t.id, pane);
 
   const ws = new WebSocket(`ws://${location.host}/pty?id=${t.id}`);
@@ -1357,9 +1418,75 @@ function makePane(t) {
   };
   term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ t: "in", d })));
   new ResizeObserver(() => resize(t.id)).observe(host);
+  dropTarget(root, t.id);
 
   return root;
 }
+
+/* -------------------------------------------------- déposer un fichier */
+
+// Lâcher une image dans un panneau. Trois choses à savoir, et la première est celle
+// qui rendait le geste impossible : sans `preventDefault`, le navigateur QUITTE la
+// page pour afficher le fichier lâché — l'app disparaît d'un coup (les terminaux, eux,
+// survivent côté serveur, mais personne ne le sait sur le moment).
+//
+// Deuxième : le navigateur ne donne PAS le chemin du fichier d'origine, et Electron ne
+// le donne plus depuis la 32. On envoie donc les OCTETS au serveur, qui en pose une
+// copie dans un dossier temporaire et rend un chemin — un seul code pour les deux
+// façons de lancer Pyra, ce qui est exactement la règle « Electron n'est qu'une
+// fenêtre ».
+//
+// Troisième : ce chemin est DÉPOSÉ dans l'invite, jamais envoyé. Même règle que pour
+// une étape — c'est l'utilisateur qui appuie sur Entrée.
+function dropTarget(root, id) {
+  const over = (e) => {
+    if (!e.dataTransfer) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    root.classList.add("drop");
+  };
+  root.addEventListener("dragenter", over);
+  root.addEventListener("dragover", over);
+  // `dragleave` part aussi quand le curseur passe d'un enfant à l'autre : sans ce
+  // test, le cadre clignoterait tout au long du survol.
+  root.addEventListener("dragleave", (e) => {
+    if (!root.contains(e.relatedTarget)) root.classList.remove("drop");
+  });
+  root.addEventListener("drop", (e) => {
+    e.preventDefault();
+    root.classList.remove("drop");
+    const files = [...(e.dataTransfer?.files || [])];
+    if (files.length) return dropFiles(id, files);
+    // Une image glissée depuis une page web n'est pas un fichier : c'est du texte
+    // (son adresse). On le dépose tel quel — Claude sait quoi en faire.
+    const text = e.dataTransfer?.getData("text/plain");
+    if (text) typeInto(id, text.trim() + " ");
+  });
+}
+
+async function dropFiles(id, files) {
+  const pane = panes.get(id);
+  if (!pane) return;
+  pane.root.classList.add("busy");
+  const paths = [];
+  for (const f of files) {
+    try {
+      const r = await fetch(`/api/terminals/${id}/drop?name=${encodeURIComponent(f.name || "drop")}`, { method: "POST", body: f });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.error || r.statusText);
+      paths.push(out.path);
+    } catch (e) {
+      alert(`Could not attach ${f.name || "that file"}: ${e.message}`);
+    }
+  }
+  pane.root.classList.remove("busy");
+  if (paths.length) typeInto(id, paths.join(" ") + " ");
+}
+
+// Sans ces deux lignes, un fichier lâché À CÔTÉ d'un panneau — dans la barre, dans la
+// vue des milestones, n'importe où — fait quitter la page pour l'afficher.
+addEventListener("dragover", (e) => e.preventDefault());
+addEventListener("drop", (e) => e.preventDefault());
 
 // La PREMIÈRE mesure est celle qui lance le programme côté serveur, à sa largeur de
 // naissance. Elle est temporisée : entre l'ouverture de la WebSocket et la pose de la
@@ -1390,13 +1517,26 @@ function resize(id) {
 // Volontairement étroit : `❯` avait sa place ici jusqu'à ce qu'un test montre que
 // c'est aussi le chevron de l'invite ordinaire — le collage n'arrivait alors jamais.
 // On ne reconnaît que les formulations propres aux questions bloquantes.
-const BLOCKING = /trust this folder|Yes, I trust|No, exit|Do you want to proceed|Enter to confirm/i;
+// Le mode `bypassPermissions` ajoute une question à ce répertoire : au tout premier
+// lancement, Claude fait accepter sa mise en garde (« WARNING: Claude Code running in
+// Bypass Permissions mode » / « Yes, I accept »). C'est un dialogue comme les autres,
+// et coller dedans y vaudrait réponse.
+const BLOCKING = /trust this folder|Yes, I trust|No, exit|Yes, I accept|Bypass Permissions mode|Do you want to proceed|Enter to confirm/i;
 
 function pasteSeed(id) {
   const pane = panes.get(id);
   if (!pane?.text) return;
   pane.seed = null;
-  pane.ws?.send(JSON.stringify({ t: "in", d: `\x1b[200~${pane.text}\x1b[201~` }));
+  typeInto(id, pane.text);
+}
+
+// Déposer du texte dans l'invite, en collage encadré et SANS Entrée. L'étape et le
+// fichier lâché passent tous deux par ici : un seul endroit où l'on pourrait, un
+// jour, ajouter un `\r` par mégarde — et c'est la règle la plus chère du projet.
+function typeInto(id, text) {
+  const pane = panes.get(id);
+  if (!pane || pane.ws?.readyState !== 1) return;
+  pane.ws.send(JSON.stringify({ t: "in", d: `\x1b[200~${text}\x1b[201~` }));
   pane.term.focus();
 }
 
@@ -1410,22 +1550,83 @@ setInterval(() => {
   }
 }, 300);
 
-// Un seul rang de terminaux occupe toute la hauteur ; à partir de deux rangs, chacun
-// prend la moitié et le reste défile. Sans ça, un terminal seul flottait au milieu
-// d'un grand vide et trois terminaux débordaient sans raison.
+/* ---------------------------------------------------- la grille se scinde seule */
+
+// Le nombre de colonnes n'est plus un réglage. « Tous visibles » est une contrainte
+// géométrique, pas une préférence : plus on ouvre de panneaux, plus ils rapetissent,
+// jusqu'à la taille en dessous de laquelle un terminal ne se lit plus. On cherche donc,
+// parmi les découpes possibles, celle dont les cellules ressemblent le plus à un
+// terminal — plus larges que hautes — en pénalisant celles qui passent sous le lisible
+// et, un peu, celles qui laissent des trous.
+//
+// La borne basse est une VRAIE borne : `grid-template-rows` la pose en `minmax`, donc
+// au-delà d'une quinzaine de panneaux la grille finit par défiler. Mieux vaut ça que
+// vingt bandes de trois lignes où plus personne ne lit rien.
+const CELL_AR = 1.6;    // largeur / hauteur visée pour une cellule
+const CELL_MIN_W = 300;
+const CELL_MIN_H = 180;
+
+function gridShape(n, W, H) {
+  if (n <= 1) return { cols: 1, rows: 1 };
+  let best = null;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const w = W / cols, h = H / rows;
+    const tight = Math.max(0, (CELL_MIN_W - w) / CELL_MIN_W) + Math.max(0, (CELL_MIN_H - h) / CELL_MIN_H);
+    const score = Math.abs(Math.log(w / h / CELL_AR)) + tight * 6 + (cols * rows - n) * 0.08;
+    if (!best || score < best.score) best = { cols, rows, score };
+  }
+  return best;
+}
+
+// La case libre, en pointillés. Elle n'apparaît QUE s'il reste un emplacement dans la
+// grille : dans une grille pleine, elle pousserait tout le monde d'un rang pour un
+// bouton, et les panneaux rapetisseraient à cause de lui. Le « ＋ » de la barre du haut
+// est là pour ce cas-là, et il ne coûte pas une case.
+const addTile = (() => {
+  const b = el("button", "addpane");
+  b.type = "button";
+  b.title = "Open another terminal";
+  b.append(el("span", "plus", "＋"), el("span", "lab", "New terminal"));
+  b.append(el("span", "hint", "Or open one from a project, or from the ▶ button of a milestone. Drop an image on a pane to attach it."));
+  b.onclick = () => askTerminal();
+  return b;
+})();
+
 function layout() {
   const grid = $("#grid");
-  const n = $("#cols").value;
-  grid.className = "grid cols-" + n;
-  const rows = Math.ceil(panes.size / Number(n));
-  grid.style.gridAutoRows = rows <= 1 ? "100%" : "calc(50% - 5px)";
+  // Repliée, la vue n'a pas de dimensions : mesurer ici donnerait une grille d'une
+  // colonne qu'on verrait se réorganiser à l'ouverture. `showView` rappelle layout().
+  if (!grid.clientWidth || !grid.clientHeight) return;
+
+  if (state.solo && !panes.has(state.solo)) state.solo = "";
+  const shown = state.solo ? 1 : panes.size;
+  const { cols, rows } = gridShape(shown, Math.max(1, grid.clientWidth - 24), Math.max(1, grid.clientHeight - 24));
+
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  grid.style.gridTemplateRows = `repeat(${rows}, minmax(${CELL_MIN_H}px, 1fr))`;
+
+  for (const [id, pane] of panes) {
+    pane.root.hidden = !!state.solo && id !== state.solo;
+    if (pane.soloBtn) pane.soloBtn.textContent = id === state.solo ? "⤡" : "⤢";
+  }
+
+  const holes = cols * rows - shown;
+  addTile.classList.toggle("alone", panes.size === 0);
+  addTile.hidden = !!state.solo || (panes.size > 0 && holes < 1);
+  grid.append(addTile); // toujours en dernier, donc toujours dans la case qui reste
+
   setTimeout(() => panes.forEach((_, id) => resize(id)), 60);
 }
 
-function setCols() {
-  localStorage.setItem("pyra.cols", $("#cols").value);
-  layout();
-}
+// Redimensionner la fenêtre change la découpe, pas seulement la taille des cellules :
+// deux panneaux côte à côte dans une fenêtre large se rangent l'un sous l'autre dans
+// une fenêtre étroite. Temporisé, parce qu'un glissement de bord émet cent événements.
+let layoutTimer = null;
+addEventListener("resize", () => {
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(layout, 120);
+});
 
 /* ------------------------------------------------------------------ vues */
 
@@ -1435,7 +1636,7 @@ function showView(v) {
   $("#view-board").classList.toggle("hidden", v !== "board");
   $("#view-terms").classList.toggle("hidden", v !== "terms");
   writeHash();
-  if (v === "terms") setTimeout(() => panes.forEach((_, id) => resize(id)), 60);
+  if (v === "terms") setTimeout(layout, 0);
 }
 
 // Le rafraîchissement tourne toutes les 4 s. Sans cette garde, il effacerait le
@@ -1468,15 +1669,20 @@ function render() {
   // et l'adresse effacée quand on le ferme. Sans le second, un rechargement rouvrirait
   // un panneau qu'on venait de fermer.
   showPanel(state.panel);
+  // `showPanel` ne fait rien quand le panneau est déjà ouvert : c'est ici que la
+  // section suit l'adresse, pour qu'un `#s=settings&sp=usage` collé dans la barre
+  // ouvre bien la bonne — c'est ce dont la capture headless a besoin.
+  if (state.panel === "settings") showSetPane(state.setPane);
 }
 
 let shownPanel = "";
 function showPanel(which) {
   if (which === shownPanel) return;
   shownPanel = which;
-  for (const [key, id] of [["settings", "#settings"], ["new", "#creator"]]) {
+  const open = { settings: openSettings, new: openCreator, term: openNewTerm };
+  for (const [key, id] of [["settings", "#settings"], ["new", "#creator"], ["term", "#newterm"]]) {
     const dlg = $(id);
-    if (which === key) { if (!dlg.open) (key === "settings" ? openSettings() : openCreator()); }
+    if (which === key) { if (!dlg.open) open[key](); }
     else if (dlg.open) dlg.close();
   }
 }
@@ -1540,6 +1746,107 @@ function openBrowser(mode) {
   browse(mode === "pick" ? newProject.parent : "");
 }
 
+/* ------------------------------------------------ la consommation du forfait */
+
+// Deux montages, UN rendu. La barre latérale porte la version courte — c'est
+// l'information qu'on veut sans rien ouvrir, au même titre que l'avancement d'un
+// projet — et le panneau des réglages la version longue, avec la formule et les
+// dates de remise à zéro. Deux rendus séparés finiraient par ne plus dire la même
+// chose du même chiffre.
+//
+// La lecture ne coûte pas un token (cf. `usage.mjs`), mais elle coûte un
+// sous-processus : elle est donc HORS de la boucle des quatre secondes, sur son
+// propre rythme, et à l'arrêt tant que la fenêtre n'est pas regardée.
+
+const USAGE_EVERY = 120_000;
+let usage = { state: "loading", data: null };
+
+async function loadUsage(fresh = false) {
+  if (fresh) usage = { state: "loading", data: null };
+  paintUsage();
+  try {
+    const r = await api("GET", "/api/usage" + (fresh ? "?fresh=1" : ""));
+    usage = { state: "done", data: r.usage };
+  } catch {
+    usage = { state: "done", data: null };
+  }
+  paintUsage();
+}
+
+// Trois paliers, et c'est le seul endroit de la barre latérale où la couleur ne
+// vient pas du dégradé : un forfait qui se remplit n'est pas un avancement, et le
+// peindre en violet le lirait comme une réussite. Sous 70 %, il n'a rien à dire et
+// reste en encre ; au-delà, il signale un état, ce qui lui donne droit à sa couleur.
+const useLevel = (p) => (p >= 90 ? "hot" : p >= 70 ? "warm" : "cool");
+const useName = (w) => (w.scope ? `${w.name} · ${w.scope}` : w.name);
+
+// La fenêtre courte se donne en DÉLAI (« resets in 2 h 40 ») : c'est une attente, et
+// personne ne convertit de tête une heure absolue en « puis-je repartir avant midi ».
+// La semaine se donne en JOUR — à trois jours, on ne compte plus en heures.
+function useReset(ms, kind) {
+  if (!ms) return "";
+  const left = ms - Date.now();
+  if (left <= 0) return "resets now";
+  if (kind === "session" || left < 24 * 3600e3) {
+    const h = Math.floor(left / 3600e3);
+    const m = Math.floor((left % 3600e3) / 60e3);
+    return "resets in " + (h ? `${h} h ${m} min` : m ? `${m} min` : "under a minute");
+  }
+  return "resets " + new Date(ms).toLocaleString("en-GB",
+    { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function renderUsage(host, compact) {
+  host.textContent = "";
+
+  const head = el("div", "use-head");
+  head.append(el("span", null, "Plan usage"));
+  if (usage.data?.plan) head.append(el("span", "use-plan", usage.data.plan));
+  const ref = el("button", "use-ref", "↻");
+  ref.type = "button";
+  ref.title = "Read it again";
+  ref.disabled = usage.state === "loading";
+  ref.onclick = () => loadUsage(true);
+  head.append(ref);
+  host.append(head);
+
+  if (usage.state === "loading") return void host.append(el("p", "use-note", "reading…"));
+
+  const u = usage.data;
+  // Indisponible n'est pas une panne : le CLI n'a pas répondu, et rien dans l'app
+  // n'en dépend. On le dit une fois, sans rouge et sans commande à taper — il n'y
+  // en a pas qui répare ça.
+  if (!u) return void host.append(el("p", "use-note",
+    compact ? "unavailable" : "Unavailable — the claude CLI did not answer. Nothing else in Pyra depends on this."));
+  if (!u.available) return void host.append(el("p", "use-note", u.reason === "metered"
+    ? "Pay as you go: this account has no plan allowance to show."
+    : "This plan reports no window to show."));
+
+  for (const w of u.windows) {
+    const item = el("div", "use-item");
+    const line = el("div", "use-line");
+    line.append(el("span", "use-nm", useName(w)), el("span", "use-pc", w.percent + " %"));
+    const track = el("div", "use-track");
+    const i = el("i", useLevel(w.percent));
+    // Un fond de piste vide et une barre à 0 % se ressemblent trop : le filet
+    // minimal dit « cette fenêtre existe et elle est intacte ».
+    i.style.width = Math.max(w.percent, 1.5) + "%";
+    track.append(i);
+    item.append(line, track);
+    const r = useReset(w.resetsAt, w.kind);
+    if (r) {
+      if (compact) item.title = r;               // le rail est étroit : au survol
+      else item.append(el("div", "use-reset", r)); // le panneau a la place de l'écrire
+    }
+    host.append(item);
+  }
+}
+
+function paintUsage() {
+  renderUsage($("#usage"), true);
+  renderUsage($("#set-usage"), false);
+}
+
 /* ------------------------------------------------------------ les réglages */
 
 // Les réglages voyagent dans `/api/state` : ils vivent en mémoire côté serveur, donc
@@ -1549,6 +1856,13 @@ function openBrowser(mode) {
 const settings = () => state.data?.settings || null;
 let providers = [];
 let conns = null;
+
+// La table des modes de permission vient du serveur (`settings.mjs`) : c'est LUI qui
+// sait quels drapeaux existent, et une seconde liste écrite ici finirait par proposer
+// un mode que le CLI a retiré. En attendant sa réponse, l'en-tête d'un panneau se
+// contente de l'identifiant brut — c'est déjà l'information.
+let permModes = [];
+const permMode = (id) => permModes.find((m) => m.id === id) || null;
 
 // Les automatismes, écrits UNE fois et rendus deux : dans le panneau (les défauts) et
 // dans le formulaire de création (ce projet-ci). Deux listes finiraient par diverger,
@@ -1607,15 +1921,41 @@ function optList(host, values, onChange) {
   }
 }
 
+// Les sections du panneau. La liste est ici et non dans le HTML pour la même raison
+// que `CREATE_OPTS` : c'est elle qui valide ce qui arrive par l'adresse.
+const SET_PANES = ["model", "perm", "usage", "conn", "create"];
+
+function showSetPane(name) {
+  const want = SET_PANES.includes(name) ? name : "model";
+  for (const b of $$("#set-nav button")) {
+    const on = b.dataset.pane === want;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  }
+  for (const sec of $$("#settings .spane")) sec.hidden = sec.dataset.pane !== want;
+}
+
 async function openSettings() {
   $("#settings").showModal();
+  showSetPane(state.setPane);
   renderSettings();
+  // La consommation vit sur son propre rythme, mais ouvrir le panneau est le geste
+  // qui dit qu'on veut la voir : on la relit si elle a vieilli. Le cache du serveur
+  // absorbe le reste — deux ouvertures d'affilée ne lancent qu'un sous-processus.
+  loadUsage();
   // Les connexions arrivent après coup : le panneau s'ouvre tout de suite et se
   // complète, plutôt que de faire attendre un clic sur deux sous-processus.
   conns = await api("GET", "/api/connections").catch(() => null);
   const s = await api("GET", "/api/settings").catch(() => null);
-  if (s) providers = s.providers;
+  if (s) { providers = s.providers; permModes = s.permissionModes || permModes; }
   renderSettings();
+}
+
+// Ouvrir un panneau demande le projet, et rien d'autre. Le dialogue est refait à
+// chaque ouverture : le nombre de panneaux vivants par projet a bougé entre-temps.
+function openNewTerm() {
+  $("#newterm").showModal();
+  renderNewTerm();
 }
 
 function renderSettings() {
@@ -1688,12 +2028,40 @@ function renderSettings() {
   br.onchange = () => saveSettings({ github: { defaultBranch: br.value.trim() || "main" } });
 
   optList($("#create-opts"), { ...set.create }, (key, val) => saveSettings({ create: { [key]: val } }));
+  renderModes(set);
+}
+
+// Un mode par ligne, exclusifs, avec ce que chacun fait vraiment. Deux étiquettes et
+// deux seulement : celle qui dit « ne demande rien » et celle qui dit « dépense ».
+// C'est la même grammaire que les automatismes de la création — un réglage qui coûte
+// ou qui engage doit se voir sans avoir à lire la description.
+function renderModes(set) {
+  const host = $("#perm-modes");
+  host.textContent = "";
+  if (!permModes.length) { host.append(el("div", "fhint", "…")); return; }
+  for (const m of permModes) {
+    const row = el("label", "opt");
+    const box = el("input");
+    box.type = "radio";
+    box.name = "perm";
+    box.checked = m.id === set.permissionMode;
+    box.onchange = () => saveSettings({ permissionMode: m.id });
+    const txt = el("div");
+    const line = el("div", "ol");
+    line.append(el("span", null, m.label));
+    if (m.tone === "hot") line.append(el("span", "tag hot", "no questions asked"));
+    if (m.cost) line.append(el("span", "tag cost", "spends tokens"));
+    txt.append(line, el("div", "od", m.desc));
+    row.append(box, txt);
+    host.append(row);
+  }
 }
 
 async function saveSettings(patch) {
   const r = await api("PUT", "/api/settings", patch);
   if (state.data) state.data.settings = r.settings;
   providers = r.providers;
+  if (r.permissionModes) permModes = r.permissionModes;
   // Changer de provider change le binaire : l'état affiché n'est plus le bon.
   if (patch.provider) { conns = null; renderSettings(); conns = await api("GET", "/api/connections").catch(() => null); }
   renderSettings();
@@ -1779,7 +2147,8 @@ function readHash() {
   // où personne ne clique — un panneau sans adresse est un panneau qu'on ne peut pas
   // regarder autrement qu'à la main.
   const sp = h.get("s");
-  state.panel = sp === "settings" || sp === "new" ? sp : "";
+  state.panel = sp === "settings" || sp === "new" || sp === "term" ? sp : "";
+  state.setPane = SET_PANES.includes(h.get("sp")) ? h.get("sp") : "model";
   showView(h.get("v") === "terms" ? "terms" : "board");
 }
 function writeHash() {
@@ -1788,6 +2157,7 @@ function writeHash() {
   if (state.view === "terms") h.set("v", "terms");
   if (state.dialog && state.selected) h.set("d", state.dialog);
   if (state.panel) h.set("s", state.panel);
+  if (state.panel === "settings" && state.setPane !== "model") h.set("sp", state.setPane);
   const next = h.toString() ? "#" + h : "#";
   if (location.hash !== next) history.replaceState(null, "", next);
 }
@@ -1795,16 +2165,23 @@ function writeHash() {
 $$(".tab").forEach((b) => (b.onclick = () => { showView(b.dataset.view); writeHash(); }));
 $(".proj.all").onclick = () => { state.selected = ""; writeHash(); render(); };
 addEventListener("hashchange", () => { readHash(); render(); });
-$("#cols").value = localStorage.getItem("pyra.cols") || "2";
-$("#cols").onchange = setCols;
-setCols();
+$("#new-term").onclick = () => askTerminal();
 $("#add-project").onclick = () => openBrowser("track");
 $("#new-project").onclick = () => { state.panel = "new"; writeHash(); render(); };
 $("#open-settings").onclick = () => { state.panel = "settings"; writeHash(); render(); };
 $("#settings-close").onclick = () => $("#settings").close();
+$("#set-nav").onclick = (e) => {
+  const b = e.target.closest("button[data-pane]");
+  if (!b) return;
+  state.setPane = b.dataset.pane;
+  writeHash();
+  showSetPane(state.setPane);
+};
 $("#creator-close").onclick = () => $("#creator").close();
+$("#newterm-close").onclick = () => $("#newterm").close();
 $("#settings").addEventListener("close", forgetPanel);
 $("#creator").addEventListener("close", forgetPanel);
+$("#newterm").addEventListener("close", forgetPanel);
 $("#new-go").onclick = () => createProject();
 $("#new-name").oninput = () => renderCreator();
 $("#new-name").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); createProject(); } };
@@ -1823,3 +2200,11 @@ if (new URLSearchParams(location.search).has("app")) document.body.classList.add
 readHash();
 refresh();
 setInterval(refresh, 4000);
+
+// La consommation a son propre rythme, deux minutes, et s'arrête quand l'onglet
+// passe à l'arrière-plan : chaque tour est un `claude` de deux secondes, et personne
+// ne lit une barre qu'il ne regarde pas. Elle repart au retour, sans attendre le
+// prochain tour — c'est justement le moment où le chiffre a bougé.
+loadUsage();
+setInterval(() => { if (!document.hidden) loadUsage(); }, USAGE_EVERY);
+addEventListener("visibilitychange", () => { if (!document.hidden) loadUsage(); });

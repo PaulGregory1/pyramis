@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { cliCommand, permissionMode, read as readSettings } from "./settings.mjs";
 
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
@@ -81,6 +82,11 @@ export function createTerminals() {
     const t = {
       id: crypto.randomBytes(5).toString("hex"),
       projectId, cwd, kind, label, command,
+      // Le mode de permission est figé À LA NAISSANCE du panneau, et gardé ici pour
+      // que l'en-tête puisse le dire. Changer le réglage ne peut pas retourner un
+      // `claude` déjà lancé : prétendre le contraire dans l'interface serait pire
+      // que ne rien afficher.
+      mode: kind === "claude" ? permissionMode(readSettings().permissionMode).id : null,
       startedAt: Date.now(),
       alive: true,
       started: false,
@@ -103,7 +109,9 @@ export function createTerminals() {
     // `claude` est lancé DANS un shell de connexion : on récupère l'environnement de
     // l'utilisateur (nvm, alias, variables) exactement comme s'il avait tapé la
     // commande — et `exec` évite de laisser un shell parent inutile derrière.
-    const args = t.command ? ["-lc", `exec ${t.command}`] : t.kind === "claude" ? ["-lc", "exec claude"] : ["-l"];
+    // `cliCommand()` est la SEULE fabrique de la ligne `claude` : le mode de
+    // permission choisi dans les réglages y entre, et il y entre une fois.
+    const args = t.command ? ["-lc", `exec ${t.command}`] : t.kind === "claude" ? ["-lc", `exec ${cliCommand()}`] : ["-l"];
     const p = pty.spawn(shell, args, {
       name: "xterm-256color",
       cols: Math.max(20, cols | 0), rows: Math.max(5, rows | 0), cwd: t.cwd,
@@ -160,7 +168,7 @@ export function createTerminals() {
     list() {
       return [...terms.values()].map((t) => ({
         id: t.id, projectId: t.projectId, cwd: t.cwd, kind: t.kind, pid: t.pty?.pid ?? null,
-        label: t.label, startedAt: t.startedAt, alive: t.alive, exitCode: t.exitCode,
+        label: t.label, mode: t.mode, startedAt: t.startedAt, alive: t.alive, exitCode: t.exitCode,
         viewers: t.clients.size,
       }));
     },

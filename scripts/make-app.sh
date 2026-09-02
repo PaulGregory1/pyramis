@@ -108,11 +108,39 @@ mkdir -p "$DEST"
 # Liste explicite : tout module racine importé par server.mjs doit y figurer,
 # sinon l'app packagée démarre… jusqu'au premier import manquant.
 cp "$REPO/package.json" "$REPO/server.mjs" "$REPO/milestones.mjs" "$REPO/terminals.mjs" \
-   "$REPO/generate.mjs" "$REPO/graph.mjs" "$DEST/"
+   "$REPO/generate.mjs" "$REPO/graph.mjs" "$REPO/repo.mjs" "$REPO/forge.mjs" \
+   "$REPO/settings.mjs" "$REPO/usage.mjs" "$DEST/"
 cp -R "$REPO/electron" "$REPO/public" "$REPO/prompts" "$DEST/"
 # Pas de projects.json : le registre vit dans ~/Library/Application Support/Pyra
 # (cf. registryPath dans server.mjs). Un registre embarqué serait écrit à chaque
 # ajout de projet — donc dans un bundle signé, donc une app qui ne redémarre plus.
+
+# La liste ci-dessus est écrite à la main, donc elle prend du retard : un module
+# racine ajouté au dépôt manque au bundle, et l'app se lance jusqu'à l'import qui
+# échoue — au premier clic, chez l'utilisateur, pas ici. On suit donc les imports
+# relatifs depuis les deux portes d'entrée (electron/main.js et server.mjs) et on
+# s'arrête net s'il en manque un.
+node - "$DEST" <<'NODE'
+import { readFileSync, existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+const dest = process.argv[2];
+const seen = new Set(), missing = [];
+const walk = (file, from) => {
+  if (!existsSync(file)) return missing.push(`${file.slice(dest.length + 1)} (importé par ${from})`);
+  if (seen.has(file)) return;
+  seen.add(file);
+  const src = readFileSync(file, "utf8");
+  for (const m of src.matchAll(/(?:from|import)\s*\(?\s*["'](\.[^"']*)["']/g))
+    walk(resolve(dirname(file), m[1]), file.slice(dest.length + 1));
+};
+walk(resolve(dest, "electron/main.js"), "le bundle");
+walk(resolve(dest, "server.mjs"), "le bundle");
+if (missing.length) {
+  console.error("modules absents de la charge — ajoute-les au cp ci-dessus :");
+  for (const m of missing) console.error("  · " + m);
+  process.exit(1);
+}
+NODE
 
 cd "$REPO"
 while IFS= read -r PKG; do

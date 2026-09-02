@@ -22,6 +22,7 @@ import * as G from "./graph.mjs";
 import * as R from "./repo.mjs";
 import * as F from "./forge.mjs";
 import * as S from "./settings.mjs";
+import * as U from "./usage.mjs";
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -404,6 +405,34 @@ async function readBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+// Le dossier où atterrissent les fichiers déposés dans un panneau. Hors du dépôt de
+// l'utilisateur, et hors de `~/Documents` : le piège TCC du CLAUDE.md ne s'applique
+// pas à `/var/folders`, et un fichier de travail n'a rien à faire dans un projet.
+const DROPS = path.join(os.tmpdir(), "pyra-drops");
+const DROP_MAX = 25 << 20;
+
+// Le corps tel quel, sans JSON : une capture d'écran de 8 Mo en base64 en ferait 11,
+// pour rien. La borne est ici et pas seulement côté client — un client n'est jamais
+// une garantie.
+async function readRaw(req, max) {
+  const chunks = [];
+  let n = 0;
+  for await (const c of req) {
+    n += c.length;
+    if (n > max) throw new Error("file too large");
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks);
+}
+
+// Le nom vient du client, donc il ne sert qu'à rendre le chemin LISIBLE : `basename`
+// coupe les séparateurs, le filtre ne laisse passer que des caractères de nom, et les
+// points de tête sautent — ni `..`, ni fichier caché. Le dossier, lui, est calculé.
+function dropName(raw) {
+  const base = path.basename(String(raw || "")).replace(/[^\w.\-]+/g, "-").replace(/^[.\-]+/, "").slice(-80);
+  return base || "drop";
+}
+
 function serveFile(res, file) {
   fs.readFile(file, (err, buf) => {
     if (err) { res.writeHead(404).end("not found"); return; }
@@ -528,12 +557,13 @@ const server = http.createServer(async (req, res) => {
     /* ------------------------------------------------------------- réglages */
 
     if (p === "/api/settings") {
-      if (req.method === "GET") return json(res, 200, { settings: S.read(), providers: S.PROVIDERS });
+      if (req.method === "GET") return json(res, 200, { settings: S.read(), providers: S.PROVIDERS, permissionModes: S.PERMISSION_MODES });
       if (req.method === "PUT") {
         const b = await readBody(req);
         // Changer de provider invalide la version affichée : c'est un autre binaire.
-        if (b.provider && b.provider !== S.read().provider) S.forgetStatus();
-        return json(res, 200, { settings: S.write(b), providers: S.PROVIDERS });
+        // Idem pour la consommation : elle décrit le forfait d'UN provider.
+        if (b.provider && b.provider !== S.read().provider) { S.forgetStatus(); U.forget(); }
+        return json(res, 200, { settings: S.write(b), providers: S.PROVIDERS, permissionModes: S.PERMISSION_MODES });
       }
     }
 
@@ -547,6 +577,14 @@ const server = http.createServer(async (req, res) => {
       );
       return json(res, 200, { provider: status, github: await F.github() });
     }
+
+    // Ce que le forfait a déjà consommé. Gratuit en tokens — c'est une requête de
+    // contrôle, pas un tour de modèle — mais pas en processus : un `claude` d'environ
+    // deux secondes. D'où le cache de deux minutes dans `usage.mjs`, et l'absence de
+    // cette lecture dans `/api/state`. `?fresh=1` est le bouton ↻ de l'interface,
+    // le seul geste qui a le droit de passer devant le cache.
+    if (req.method === "GET" && p === "/api/usage")
+      return json(res, 200, { usage: await U.read({ fresh: url.searchParams.get("fresh") === "1" }) });
 
     const projMatch = /^\/api\/projects\/([a-f0-9]+)$/.exec(p);
     if (projMatch) {
@@ -699,7 +737,11 @@ const server = http.createServer(async (req, res) => {
       // un dossier arbitraire.
       const asked = b.cwd ? path.resolve(b.cwd) : proj.path;
       const cwd = (asked === proj.path || asked.startsWith(proj.path + path.sep)) && fs.existsSync(asked) ? asked : proj.path;
-      const command = b.background ? `claude attach ${sid}` : `claude --resume ${sid} --fork-session`;
+      // Reprendre un fil, c'est ouvrir un `claude` de plus : il obéit donc au même
+      // mode de permission que les autres panneaux. `claude attach`, lui, se rebranche
+      // sur un process DÉJÀ lancé — son mode est celui qu'il avait, et lui passer un
+      // drapeau de lancement n'aurait aucun sens.
+      const command = b.background ? `claude attach ${sid}` : S.cliCommand(["--resume", sid, "--fork-session"]);
       const t = terminals.spawn({
         projectId: proj.id, cwd, kind: "claude",
         label: (b.label || "session").slice(0, 80), command,
@@ -709,6 +751,31 @@ const server = http.createServer(async (req, res) => {
 
     const termMatch = /^\/api\/terminals\/([a-f0-9]+)$/.exec(p);
     if (termMatch && req.method === "DELETE") return json(res, 200, { ok: terminals.kill(termMatch[1]) });
+
+    // Une image lâchée dans un panneau. Le navigateur ne donne PAS le chemin du
+    // fichier d'origine (et Electron ne le donne plus depuis la 32) : on reçoit donc
+    // les octets, on en pose une copie dans le dossier temporaire du système, et
+    // c'est ce chemin-là que le client dépose dans l'invite. Trois conséquences
+    // voulues : le fichier de l'utilisateur n'est ni déplacé, ni modifié, ni
+    // supprimé ; rien n'entre dans son dépôt ; et le ménage revient à macOS, qui
+    // purge `/var/folders` tout seul — Pyra n'efface rien, ici non plus.
+    const dropMatch = /^\/api\/terminals\/([a-f0-9]+)\/drop$/.exec(p);
+    if (dropMatch && req.method === "POST") {
+      const t = terminals.get(dropMatch[1]);
+      if (!t) return json(res, 404, { error: "unknown terminal" });
+      let buf;
+      try { buf = await readRaw(req, DROP_MAX); } catch (e) { return json(res, 413, { error: String(e.message || e) }); }
+      if (!buf.length) return json(res, 400, { error: "empty file" });
+      const dir = path.join(DROPS, t.id);
+      await fsp.mkdir(dir, { recursive: true });
+      const name = dropName(url.searchParams.get("name"));
+      // Deux captures d'écran portent le même nom à une seconde près. On ne remplace
+      // pas la première : l'utilisateur peut encore vouloir en parler.
+      let file = path.join(dir, name);
+      for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, `${i}-${name}`);
+      await fsp.writeFile(file, buf);
+      return json(res, 200, { path: file });
+    }
 
     res.writeHead(404).end("not found");
   } catch (e) {

@@ -9,7 +9,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { init, read, write, normalize, provider, PROVIDERS, DEFAULTS } from "../settings.mjs";
+import { init, read, write, normalize, provider, cliCommand, permissionMode, PROVIDERS, PERMISSION_MODES, DEFAULTS } from "../settings.mjs";
 
 const file = async () => path.join(await fsp.mkdtemp(path.join(os.tmpdir(), "pyra-set-")), "settings.json");
 
@@ -95,4 +95,55 @@ test("un patch ne touche qu'à ce qu'il nomme", async () => {
   assert.equal(s.create.graph, false);
   assert.equal(s.create.milestones, true);
   assert.equal(s.provider, "claude");
+});
+
+/* --------------------------------------------- le mode de permission */
+
+test("les panneaux s'ouvrent en bypass, et c'est un choix", () => {
+  // Pyra existe pour tenir N sessions en parallèle. N murs de questions à valider une
+  // par une est exactement ce qu'on fuyait — le défaut le dit. Si ce test tombe, c'est
+  // une décision de produit qui a changé, pas un détail.
+  assert.equal(DEFAULTS.permissionMode, "bypassPermissions");
+});
+
+test("le bypass passe par son propre drapeau, jamais par --permission-mode", () => {
+  // Le CLI REFUSE `--permission-mode bypassPermissions` au lancement (« Cannot set
+  // permission mode to bypassPermissions because the session was not launched with
+  // --dangerously-skip-permissions »). Les deux formes ne sont pas interchangeables,
+  // et le jour où quelqu'un « simplifiera » la table, aucun panneau ne démarrerait.
+  assert.deepEqual(permissionMode("bypassPermissions").args, ["--dangerously-skip-permissions"]);
+  assert.ok(!cliCommand([], { provider: "claude", permissionMode: "bypassPermissions" }).includes("--permission-mode"));
+});
+
+test("le mode manuel ne passe RIEN — ne rien dire est déjà le défaut du CLI", () => {
+  // En ligne de commande le CLI l'appelle « manual » et non « default » : lui passer
+  // le nom interne serait refusé. On ne passe donc aucun drapeau.
+  assert.deepEqual(permissionMode("default").args, []);
+  assert.equal(cliCommand([], { provider: "claude", permissionMode: "default" }), "claude");
+});
+
+test("un mode inconnu retombe sur le défaut plutôt que d'être écrit tel quel", () => {
+  // Même raison que pour `visibility` : la valeur est relue au démarrage suivant, et
+  // un mode inventé ferait échouer CHAQUE ouverture de panneau, longtemps après.
+  assert.equal(normalize({ permissionMode: "yolo" }).permissionMode, DEFAULTS.permissionMode);
+  assert.equal(permissionMode("yolo").id, PERMISSION_MODES[0].id);
+});
+
+test("la commande met les drapeaux du mode AVANT ce qu'on lui ajoute", () => {
+  // `claude --dangerously-skip-permissions --resume <id> --fork-session` : la reprise
+  // d'une session est un `claude` de plus, et elle obéit au même réglage. Un seul
+  // endroit compose cette ligne, sinon un panneau sur deux demanderait la permission.
+  const cmd = cliCommand(["--resume", "abc", "--fork-session"], { provider: "claude", permissionMode: "acceptEdits" });
+  assert.equal(cmd, "claude --permission-mode acceptEdits --resume abc --fork-session");
+});
+
+test("chaque mode dit son nom court, son nom long et ce qu'il passe au CLI", () => {
+  // `short` va dans l'en-tête d'un panneau, `label` dans les réglages : sans les deux,
+  // « BYPASS PERMISSIONS » en capitales prendrait la place du nom du projet.
+  for (const m of PERMISSION_MODES) {
+    assert.ok(m.id && m.short && m.label && m.desc, m.id);
+    assert.ok(Array.isArray(m.args), m.id);
+  }
+  // Un seul mode dépense : celui dont un classifieur répond aux questions.
+  assert.deepEqual(PERMISSION_MODES.filter((m) => m.cost).map((m) => m.id), ["auto"]);
 });

@@ -39,6 +39,72 @@ export const PROVIDERS = [
 
 export const provider = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
 
+/* ------------------------------------------------ le mode de permission */
+
+// Ce que Claude fait AVANT d'agir : demander, ou pas. Le CLI porte ce réglage
+// lui-même, donc Pyra n'a rien à réimplémenter — c'est toute la différence avec
+// ApplyStudio, qui intercepte chaque outil par `canUseTool` parce qu'il tient une
+// query() du SDK. Ici un panneau EST un `claude` complet : on lui passe un drapeau
+// au lancement, et c'est lui qui arbitre.
+//
+// Le défaut est `bypassPermissions`, et c'est un choix, pas une négligence : Pyra
+// existe pour tenir N sessions en parallèle, et N murs de questions à valider une
+// par une est exactement ce qu'on fuyait. Le réglage est ici, en toutes lettres,
+// pour que celui qui veut l'inverse le trouve du premier coup.
+//
+// `bypassPermissions` a un drapeau à lui, et il n'est PAS interchangeable avec
+// `--permission-mode bypassPermissions` : le CLI refuse cette forme au lancement
+// (« Cannot set permission mode to bypassPermissions because the session was not
+// launched with --dangerously-skip-permissions »). Lu dans le binaire, pas deviné.
+// Et `default` ne se passe pas non plus : le CLI l'appelle « manual » en ligne de
+// commande, donc on ne passe RIEN — ne rien dire, c'est déjà son défaut.
+// `short` est ce que porte l'en-tête d'un panneau, `label` ce que porte le réglage :
+// « BYPASS PERMISSIONS » en capitales au-dessus d'un terminal prend la place du nom du
+// projet, et c'est le nom du projet qu'on cherche d'abord.
+export const PERMISSION_MODES = [
+  {
+    id: "bypassPermissions", short: "bypass", label: "Bypass permissions", tone: "hot",
+    args: ["--dangerously-skip-permissions"],
+    desc: "Claude never asks — including for shell commands and writes outside the project. The default here: N panes of questions is the thing Pyra exists to avoid.",
+  },
+  {
+    id: "acceptEdits", short: "accept edits", label: "Accept edits",
+    args: ["--permission-mode", "acceptEdits"],
+    desc: "File edits go through on their own; anything that runs a command still asks.",
+  },
+  {
+    id: "default", short: "manual", label: "Manual",
+    args: [],
+    desc: "The CLI's own behaviour: Claude asks before anything dangerous.",
+  },
+  {
+    id: "dontAsk", short: "don't ask", label: "Don't ask", tone: "hot",
+    args: ["--permission-mode", "dontAsk"],
+    desc: "Never prompts, and denies whatever your own settings have not pre-approved. The mirror image of bypass — it errs towards doing nothing.",
+  },
+  {
+    id: "auto", short: "auto", label: "Auto", cost: true,
+    args: ["--permission-mode", "auto"],
+    desc: "A model classifier answers the prompts for you. It is the only mode here that spends tokens of its own.",
+  },
+  {
+    id: "plan", short: "plan", label: "Plan",
+    args: ["--permission-mode", "plan"],
+    desc: "Analysis only: Claude reads and proposes, and runs nothing.",
+  },
+];
+
+export const permissionMode = (id) => PERMISSION_MODES.find((m) => m.id === id) || PERMISSION_MODES[0];
+
+// La commande à lancer dans un panneau. UN seul endroit la compose : le terminal
+// maison et la reprise d'une session (`--resume --fork-session`) doivent obéir au
+// même réglage, sinon un panneau sur deux demanderait la permission et personne
+// ne saurait pourquoi. Les drapeaux viennent d'une table, jamais du client — rien
+// de ce qui est concaténé ici ne traverse le réseau.
+export function cliCommand(extra = [], s = read()) {
+  return [provider(s.provider).cli, ...permissionMode(s.permissionMode).args, ...extra].join(" ");
+}
+
 /* ---------------------------------------------------------------- les défauts */
 
 // `create` ne concerne QUE le chemin « nouveau projet ». Ajouter un dossier déjà
@@ -49,6 +115,7 @@ export const provider = (id) => PROVIDERS.find((p) => p.id === id) || PROVIDERS[
 export const DEFAULTS = {
   provider: "claude",
   model: "", // vide = le défaut du CLI
+  permissionMode: "bypassPermissions", // ce que Claude demande avant d'agir — voir PERMISSION_MODES
   create: {
     git: true,        // `git init` + premier commit
     remote: true,     // dépôt distant via `gh repo create`
@@ -121,6 +188,9 @@ export function normalize(s) {
   return {
     provider: known ? s.provider : DEFAULTS.provider,
     model: typeof s.model === "string" ? s.model.slice(0, 80) : "",
+    permissionMode: PERMISSION_MODES.some((m) => m.id === s.permissionMode)
+      ? s.permissionMode
+      : DEFAULTS.permissionMode,
     create: {
       git: bool(s.create?.git, DEFAULTS.create.git),
       remote: bool(s.create?.remote, DEFAULTS.create.remote),
