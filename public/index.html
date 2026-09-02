@@ -87,19 +87,18 @@
     </div>
 
     <!-- Une barre latérale, pour la même raison que celle de l'app : quatre sections
-         empilées se lisaient comme une page longue, où la consommation du forfait — la
-         seule qu'on vienne consulter plusieurs fois par jour — se trouvait tout en bas.
-         Chaque section a une adresse (`#s=settings&sp=usage`), comme les vues. -->
+         empilées se lisaient comme une page longue. La consommation du forfait — la
+         seule qu'on vienne consulter plusieurs fois par jour — n'a pas d'onglet à elle :
+         elle est dans le premier, celui qui s'ouvre tout seul, sous le fournisseur qui
+         la dépense. Chaque section a une adresse (`#s=settings&sp=perm`), comme les vues ;
+         un vieux `sp=usage` retombe sur `model`, qui montre désormais la consommation. -->
     <div class="sbody">
       <nav class="snav" id="set-nav" role="tablist" aria-label="Settings sections">
         <button type="button" role="tab" class="on" data-pane="model" aria-selected="true">
-          <span class="sd"></span>Model provider
+          <span class="sd"></span>Model &amp; plan
         </button>
         <button type="button" role="tab" data-pane="perm" aria-selected="false">
           <span class="sd"></span>Terminals
-        </button>
-        <button type="button" role="tab" data-pane="usage" aria-selected="false">
-          <span class="sd"></span>Plan usage
         </button>
         <button type="button" role="tab" data-pane="conn" aria-selected="false">
           <span class="sd"></span>Connections
@@ -118,6 +117,20 @@
             <select id="set-model"></select>
           </label>
           <p class="fhint">Leave on <i>Default</i> to follow whatever the CLI picks.</p>
+
+          <!-- Le forfait est celui du fournisseur choisi juste au-dessus : le montrer
+               ailleurs obligeait à changer d'onglet pour lire ce que le réglage d'à côté
+               dépense. Même bloc que le rail (`paintUsage` en fait deux rendus, jamais
+               deux versions du même chiffre) ; `.wide` lui rend la place d'écrire les
+               dates de remise à zéro. -->
+          <div class="ssub">
+            <h4>Plan usage</h4>
+            <div id="set-usage" class="use wide"></div>
+            <p class="fhint">
+              Read from the CLI, which asks your own account — Pyra never sees the token.
+              Asking costs no tokens: it is a control request, not a turn of the model.
+            </p>
+          </div>
         </section>
 
         <!-- Le mode de permission ne vaut QUE pour les panneaux : la génération
@@ -130,15 +143,6 @@
             never turns around a session that is already running.
           </p>
           <div id="perm-modes" class="opts"></div>
-        </section>
-
-        <section class="sset spane" data-pane="usage" hidden>
-          <h4>Plan usage</h4>
-          <div id="set-usage" class="use wide"></div>
-          <p class="fhint">
-            Read from the CLI, which asks your own account — Pyra never sees the token.
-            Asking costs no tokens: it is a control request, not a turn of the model.
-          </p>
         </section>
 
         <section class="sset spane" data-pane="conn" hidden>

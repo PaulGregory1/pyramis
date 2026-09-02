@@ -267,7 +267,10 @@ appartient au CLI, qui interroge le compte avec ; Pyra ne voit que des pourcenta
 
 **Deux montages, un seul rendu.** La barre latérale porte la version courte (on veut
 le chiffre sans rien ouvrir, comme l'avancement d'un projet), le panneau la version
-longue avec la formule et les dates. Deux rendus finiraient par ne plus dire la même
+longue avec les dates de remise à zéro. Elle n'a PAS d'onglet à elle : elle est dans
+« Model & plan », sous le fournisseur qui dépense ce forfait, parce que le choix et sa
+dépense sont deux faces du même réglage — et parce que c'est l'onglet qui s'ouvre tout
+seul, donc la version longue se lit sans un clic de plus. Deux rendus finiraient par ne plus dire la même
 chose du même chiffre. Et la couleur n'est PAS le dégradé : un forfait qui se remplit
 n'est pas un avancement, le peindre en violet le lirait comme une réussite. Encre
 jusqu'à 70 %, puis `--warn`, puis `--blocked` — la couleur ne vient qu'avec l'état.
@@ -870,8 +873,8 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Toucher à ce que l'app commite | `forge.mjs` (`OWNED`, `sync`), puis `test/forge.test.mjs` — chaque nom ajouté est un fichier de plus qu'on s'autorise chez quelqu'un d'autre |
 | Créer le dépôt distant autrement | `forge.mjs` (`createRemote`, `ghBin`) |
 | Changer le squelette d'un projet neuf | `forge.mjs` (`scaffold`, `starter`, `GITIGNORE`) |
-| Retoucher le panneau des réglages | `public/index.html` (`#settings`), `public/app.js` (`renderSettings`), `public/style.css` (`.sset`, `.frow`, `.opts`) |
-| Regarder un panneau sans cliquer | son adresse : `#s=settings`, `#s=settings&sp=usage`, `#s=new` |
+| Retoucher le panneau des réglages | `public/index.html` (`#settings`), `public/app.js` (`renderSettings`, `SET_PANES`), `public/style.css` (`.sset`, `.ssub`, `.frow`, `.opts`) |
+| Regarder un panneau sans cliquer | son adresse : `#s=settings`, `#s=settings&sp=perm`, `#s=new` — un `sp` inconnu (`usage`, d'avant la fusion) retombe sur `model` |
 | Ajouter une route | `server.mjs`, bloc `http` |
 | Toucher à la fenêtre, au menu, au ⌘Q | `electron/main.js` |
 | Changer ce que le bundle emporte, ou son identité | `scripts/make-app.sh` |

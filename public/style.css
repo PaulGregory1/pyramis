@@ -154,7 +154,7 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
 .use-track i.hot { background: var(--blocked); }
 .use-reset { margin-top: 4px; font-size: 10.5px; color: var(--faint); }
 .use.wide { margin: 0; padding: 0; border-top: 0; max-width: 380px; }
-.use.wide .use-head { display: none; } /* le titre de section le dit déjà */
+.use.wide .use-head { display: none; } /* le sous-titre du bloc le dit déjà */
 .use.wide + .fhint { margin-top: 14px; } /* la note ne colle pas à la dernière barre */
 
 /* --------------------------------------------------- sessions du projet */
@@ -608,6 +608,11 @@ dialog menu button { background: var(--panel); border: 1px solid var(--line-2); 
   margin: 0 0 11px; font-size: 10px; font-weight: 600;
   text-transform: uppercase; letter-spacing: var(--track); color: var(--dim);
 }
+
+/* Un second sujet dans une même section — la consommation sous le fournisseur. Le
+   filet le sépare sans en faire un onglet de plus : c'est le même réglage vu de deux
+   côtés, ce qu'on choisit et ce que ça dépense. */
+.ssub { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 
 /* Une ligne de formulaire : l'intitulé à gauche, le contrôle à droite, et la même
    largeur d'intitulé partout — c'est l'alignement de la colonne de gauche qui fait

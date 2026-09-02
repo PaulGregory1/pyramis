@@ -1970,7 +1970,7 @@ function render() {
   // un panneau qu'on venait de fermer.
   showPanel(state.panel);
   // `showPanel` ne fait rien quand le panneau est déjà ouvert : c'est ici que la
-  // section suit l'adresse, pour qu'un `#s=settings&sp=usage` collé dans la barre
+  // section suit l'adresse, pour qu'un `#s=settings&sp=perm` collé dans la barre
   // ouvre bien la bonne — c'est ce dont la capture headless a besoin.
   if (state.panel === "settings") showSetPane(state.setPane);
 }
@@ -2050,9 +2050,9 @@ function openBrowser(mode) {
 
 // Deux montages, UN rendu. La barre latérale porte la version courte — c'est
 // l'information qu'on veut sans rien ouvrir, au même titre que l'avancement d'un
-// projet — et le panneau des réglages la version longue, avec la formule et les
-// dates de remise à zéro. Deux rendus séparés finiraient par ne plus dire la même
-// chose du même chiffre.
+// projet — et le panneau des réglages la version longue, avec les dates de remise à
+// zéro, dans le même onglet que le fournisseur qui dépense ce forfait. Deux rendus
+// séparés finiraient par ne plus dire la même chose du même chiffre.
 //
 // La lecture ne coûte pas un token (cf. `usage.mjs`), mais elle coûte un
 // sous-processus : elle est donc HORS de la boucle des quatre secondes, sur son
@@ -2222,8 +2222,10 @@ function optList(host, values, onChange) {
 }
 
 // Les sections du panneau. La liste est ici et non dans le HTML pour la même raison
-// que `CREATE_OPTS` : c'est elle qui valide ce qui arrive par l'adresse.
-const SET_PANES = ["model", "perm", "usage", "conn", "create"];
+// que `CREATE_OPTS` : c'est elle qui valide ce qui arrive par l'adresse. Plus de
+// section « usage » : la consommation est dans « model », sous le fournisseur qui la
+// dépense — et un `sp=usage` d'hier retombe sur `model`, donc sur ce qu'il cherchait.
+const SET_PANES = ["model", "perm", "conn", "create"];
 
 function showSetPane(name) {
   const want = SET_PANES.includes(name) ? name : "model";
