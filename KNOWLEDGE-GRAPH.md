@@ -461,6 +461,16 @@ premier lancement — la demande ne peut pas s'afficher, l'app attend ; déverro
 la débloque. Diagnostic : `sample <pid>`, et chercher `uv_fs_open` → `open` en bas
 de la pile du thread principal.
 
+**Et la demande revient à CHAQUE réinstallation.** Le bundle est signé ad hoc
+(`Signature=adhoc`, pas d'équipe) : le hash change à chaque `make-app.sh --install`,
+macOS y voit une autre application et remet son autorisation à zéro. Donc après
+chaque installation, le premier lancement se fige jusqu'à ce qu'on accepte — la même
+fenêtre blanche et le même serveur muet qu'une vraie panne. Ce n'en est pas une, il
+n'y a qu'à cliquer. Mesuré : `curl /api/settings` sans réponse, `sample` sur
+`__open`, puis tout repart d'un coup une fois l'accès donné. C'est aussi le seul prix
+de la note « un `.app` notarié » du `MILESTONES.md` : signé pour de bon, le hash
+cesserait de bouger et l'autorisation tiendrait.
+
 **`spawn-helper` perd son bit exécutable.** npm extrait les prebuilds de node-pty
 sans les permissions. Chaque `pty.spawn()` échoue alors sur un `posix_spawnp failed`
 qui ne dit rien de la cause. D'où le `postinstall`. Si les terminaux ne démarrent
