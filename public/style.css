@@ -424,6 +424,16 @@ input.chip[type="date"] { width: 118px; padding: 2px 6px; }
 .pane > header .grow { flex: 1; }
 .pane > header button { background: none; border: 0; color: var(--faint); cursor: pointer; font: inherit; padding: 2px 6px; border-radius: 5px; }
 .pane > header button:hover { color: var(--ink); background: var(--line); }
+/* Le nom du projet mène à sa page, mais il ne devient pas un bouton d'action pour
+   autant : il reste à l'encre, à sa place, et seul le fond au survol dit qu'il mène
+   quelque part. Peint comme « ⤢ » et « ✕ », l'en-tête aurait eu trois commandes et plus
+   d'identité. Le `min-width: 0` est ce qui laisse le nom se couper aux points de
+   suspension quand le panneau rétrécit — un item flex ne descend pas sous son contenu
+   sans lui, et le nom aurait poussé les boutons hors du cadre. */
+.pane > header .goproj {
+  display: flex; align-items: center; gap: 9px; min-width: 0; margin-left: -6px;
+  color: var(--ink);
+}
 .pane.flash { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 
 /* Le panneau tout entier s'agrandit au clic. La barre de titre le DIT — c'est la seule

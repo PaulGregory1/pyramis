@@ -78,7 +78,7 @@ function renderSide() {
     if (p.mainStats.total) meta.append(el("span", null, `${p.mainStats.done}/${p.mainStats.total}`));
     if (!p.exists) meta.append(el("span", null, "⚠"));
     b.append(meta);
-    b.onclick = () => { state.selected = p.id; writeHash(); render(); };
+    b.onclick = () => showProject(p.id);
     box.append(b);
 
     if (p.mainStats.total) {
@@ -121,6 +121,18 @@ function renderSide() {
   $(".proj.all").classList.toggle("on", !state.selected);
   const n = state.data.liveCount;
   $("#live").innerHTML = `<b>${n}</b> Claude session${n > 1 ? "s" : ""}`;
+}
+
+// Aller à un projet, c'est aussi CHANGER DE VUE. Sans cette bascule, un clic sur un
+// projet depuis la grille des terminaux ne faisait rien de visible : il sélectionnait un
+// projet dans une vue cachée, et l'écran restait sur les mêmes panneaux. Le seul signe
+// était la barre latérale qui changeait de surbrillance — de quoi croire l'app cassée.
+// C'est le pendant exact de `focusPane` ci-dessous, et les deux sens doivent être
+// câblés : la page mène au panneau, le panneau ramène à la page.
+function showProject(id) {
+  state.selected = id;
+  showView("board"); // écrit l'adresse
+  render();
 }
 
 // Un panneau déjà ouvert : on bascule sur la vue, on le met en évidence, on lui donne
@@ -215,7 +227,7 @@ function renderOverview(view) {
     const row = el("div", "ms-row");
     row.style.cssText = "display:flex;gap:6px;margin-top:12px;flex-wrap:wrap";
     const open = el("button", "btn ghost", "Open");
-    open.onclick = () => { state.selected = p.id; writeHash(); render(); };
+    open.onclick = () => showProject(p.id);
     const term = el("button", "btn ghost", "＋ Terminal");
     term.onclick = () => openTerminal(p.id, "claude");
     row.append(open, term);
@@ -1375,8 +1387,18 @@ function gpu(term) {
 function makePane(t) {
   const root = el("div", "pane" + (t.alive ? "" : " dead"));
   const head = el("header");
-  head.append(el("span", null, t.project.emoji));
-  head.append(el("span", "name", t.label || t.project.name));
+  // L'identité du panneau EST le chemin vers son projet. La grille montre huit dépôts à
+  // la fois et rien d'autre : sans ce clic, relire le README de celui qu'on regarde
+  // demandait de changer d'onglet puis de retrouver son nom dans la barre latérale —
+  // trois gestes pour revenir au projet qu'on avait sous les yeux. Le libellé d'une
+  // session reprise remplace le nom du projet ; c'est l'infobulle qui le dit alors, sans
+  // quoi on cliquerait sans savoir où l'on va.
+  const goProj = el("button", "goproj");
+  goProj.append(el("span", null, t.project.emoji));
+  goProj.append(el("span", "name", t.label || t.project.name));
+  goProj.title = `Open ${t.project.name} — its preview, milestones and viewers`;
+  goProj.onclick = () => showProject(t.project.id);
+  head.append(goProj);
   head.append(el("span", "kind", t.kind));
   // Le mode de permission du panneau, tel qu'il a été LANCÉ. Il est écrit ici et pas
   // seulement dans les réglages parce que c'est là qu'on en a besoin : savoir qu'un
@@ -2275,7 +2297,7 @@ function writeHash() {
 }
 
 $$(".tab").forEach((b) => (b.onclick = () => { showView(b.dataset.view); writeHash(); }));
-$(".proj.all").onclick = () => { state.selected = ""; writeHash(); render(); };
+$(".proj.all").onclick = () => showProject("");
 addEventListener("hashchange", () => { readHash(); render(); });
 $("#new-term").onclick = () => askTerminal();
 $("#add-project").onclick = () => openBrowser("track");
