@@ -491,6 +491,14 @@ panneau shell cette fois. Le réglage est donc posé cran par cran, en CAPTURE s
 xterm écoute sur `.xterm`, un enfant, et seule la capture passe avant lui. Rien n'est
 écrit dans le pty depuis là — `typeInto()` reste le seul.
 
+**Les morceaux du pty sont minuscules et nombreux.** Mesuré : 820 octets de médiane,
+1 024 au plus, ~70 par seconde et par terminal. Le tampon de rappel de `terminals.mjs`
+se retaillait à CHAQUE morceau — 256 Ko recopiés pour en garder un — soit 0,061 ms par
+morceau contre 0,002 ms en retaillant par lots : trente-huit fois le prix, payé sur la
+boucle Node que tous les panneaux partagent. On laisse donc le tampon doubler avant de
+le couper, et c'est `attach` qui garantit le plafond au moment d'envoyer le rappel
+(vérifié : 262 144 octets exactement après 700 Ko de sortie).
+
 **Le module doit voyager avec l'app.** `server.mjs` le sert sous `/vendor/addon-webgl.js`
 comme les deux autres, et `scripts/make-app.sh` VÉRIFIE sa présence dans le bundle : un
 module oublié là ne se voit qu'à l'exécution, dans l'app empaquetée, et jamais en
@@ -911,6 +919,7 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Toucher à l'agrandissement d'un panneau | `public/app.js` (`setZoom`, `zoomBack`, `zoomSlot`, `layout`), `public/style.css` (`.pane.zoomed`, `.zback`, `.zclose`, `.paneslot`) — les noms courts sont un espace PLAT, `grep` avant d'en choisir un |
 | Toucher au peintre du terminal | `public/app.js` (`gpu`), `server.mjs` (`/vendor/addon-webgl.js`), `scripts/make-app.sh` (la liste des modules vérifiés) |
 | Toucher au défilement d'un panneau | `public/app.js` (`wheel`, `WHEEL_DAMPED`, `WHEEL_UNDAMP`) |
+| Toucher au tampon de rappel d'un terminal | `terminals.mjs` (`SCROLLBACK`, `SCROLLBACK_MAX`, `attach`) |
 | Changer ce qu'un clic fait dans un panneau | `public/app.js` (`zoomTarget`) — la liste des exceptions EST la règle |
 | Toucher au « ＋ » ou au choix du projet | `public/app.js` (`addTile`, `askTerminal`, `renderNewTerm`), `public/index.html` (`#newterm`), `public/style.css` (`.addpane`, `.tlist`) |
 | Toucher au dépôt d'un fichier dans un panneau | `public/app.js` (`dropTarget`, `dropFiles`, `typeInto`), `server.mjs` (`/drop`, `DROPS`, `readRaw`, `dropName`) |

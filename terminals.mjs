@@ -20,6 +20,13 @@ const pty = require("node-pty");
 // Assez pour retrouver le fil après un rechargement, pas assez pour faire enfler
 // la mémoire quand un build bavard tourne pendant une heure.
 const SCROLLBACK = 256 * 1024;
+// On laisse le tampon doubler avant de le retailler, et on ne le retaille QUE là.
+// node-pty rend des morceaux d'un kilo-octet (mesuré : 820 o de médiane, ~70 par
+// seconde et par terminal) : retailler à chaque morceau recopiait 256 Ko pour en
+// garder un, soit 0,061 ms par morceau contre 0,002 ms amorti — trente-huit fois le
+// prix, payé sur la boucle Node que tous les panneaux partagent. La garantie ne bouge
+// pas : c'est `attach` qui coupe à SCROLLBACK au moment d'envoyer le rappel.
+const SCROLLBACK_MAX = SCROLLBACK * 2;
 
 // Si Pyra est lui-même démarré depuis une session Claude, l'environnement porte
 // des marqueurs d'imbrication (CLAUDE_CODE_CHILD_SESSION & co). Un `claude` qui en
@@ -121,7 +128,7 @@ export function createTerminals() {
 
     p.onData((d) => {
       t.buffer += d;
-      if (t.buffer.length > SCROLLBACK) t.buffer = t.buffer.slice(-SCROLLBACK);
+      if (t.buffer.length > SCROLLBACK_MAX) t.buffer = t.buffer.slice(-SCROLLBACK);
       send(t, { t: "out", d });
     });
     p.onExit(({ exitCode }) => {
@@ -140,7 +147,7 @@ export function createTerminals() {
     t.clients.add(ws);
     ws.send(JSON.stringify({
       t: "ready", id: t.id, kind: t.kind, cwd: t.cwd, label: t.label,
-      projectId: t.projectId, alive: t.alive, replay: t.buffer,
+      projectId: t.projectId, alive: t.alive, replay: t.buffer.slice(-SCROLLBACK),
     }));
     ws.on("close", () => t.clients.delete(ws));
   }
