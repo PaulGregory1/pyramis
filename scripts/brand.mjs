@@ -64,6 +64,89 @@ for size in (256, 128, 64):
     c = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     c.paste(m, ((size - m.width) // 2, (size - m.height) // 2), m)
     c.save("public/brand/favicon.png" if size == 64 else f"public/brand/mark-{size}.png")
+# Les huit pyramides de couleur : une planche 4 x 2 où chaque case porte la pyramide
+# et, dessous, le mot-symbole. Seule la pyramide sert d'icône. La découpe se lit sur les
+# BANDES VIDES de la planche plutôt que sur des coordonnées écrites ici : une planche
+# redessinée d'un pixel les décalerait toutes les huit d'un coup, et le seul symptôme
+# serait une icône rognée de travers.
+c = Image.open("public/brand/colors-pyr.png").convert("RGB")
+cp = c.load(); cw, ch = c.size
+
+# Deux seuils, et ils ne disent pas la même chose. PAPER sépare l'encre du papier ; il
+# est haut parce que les faces CLAIRES des pyramides le sont aussi — le sommet de la
+# grise est à (229, 230, 232), à six points du blanc, et un seuil déduit de la luminance
+# comme celui du losange du graphe le mangerait. DARK ne reconnaît que les faces sombres
+# et ne sert qu'à une chose : trouver le bas de la base.
+PAPER, DARK = 246, 190
+inked = [[min(cp[x, y]) < PAPER for y in range(ch)] for x in range(cw)]
+dark = [[min(cp[x, y]) < DARK for y in range(ch)] for x in range(cw)]
+
+def runs(vals):
+    out = []; s = None
+    for i, v in enumerate(vals):
+        if v and s is None: s = i
+        if not v and s is not None: out.append((s, i - 1)); s = None
+    if s is not None: out.append((s, len(vals) - 1))
+    return out
+
+rows = runs([any(inked[x][y] for x in range(cw)) for y in range(ch)])
+# Quatre bandes : pyramides, mot-symbole, pyramides, mot-symbole. Les pyramides sont les
+# HAUTES — c'est le seul critère qui survive à un mot plus long ou à une rangée de plus.
+tall = max(b - a for a, b in rows)
+bands = [(a, b) for a, b in rows if (b - a) > tall / 2]
+
+# L'ordre de lecture de la planche, et c'est un contrat : le nom du fichier est le jeton
+# qu'un projet garde dans le registre (« pyr:violet »). La même liste, dans le même
+# ordre, est dans PYR de public/app.js — les deux, jamais une seule.
+names = ["violet", "blue", "teal", "orange", "pink", "amber", "slate", "red"]
+cells = [(x0, x1, y0, y1)
+         for y0, y1 in bands
+         for x0, x1 in runs([any(inked[x][y] for y in range(y0, y1 + 1)) for x in range(cw)])]
+assert len(cells) == len(names), f"{len(cells)} pyramides pour {len(names)} noms"
+
+SIZE = 128
+for name, (x0, x1, y0, y1) in zip(names, cells):
+    # L'ombre portée s'en va, et c'est une décision : les autres images de la marque n'en
+    # ont pas, et à 17 px une tache gris pâle ne se lit pas comme une ombre mais comme une
+    # jupe sale. Aucun seuil ne la sépare — elle va de 212 à 245, et le sommet de la
+    # pyramide grise est à 229 — donc on la sépare par sa PLACE : dans chaque colonne,
+    # l'ombre est ce qui tombe SOUS le dernier pixel sombre, c'est-à-dire sous le bas de
+    # la base. Mesuré sur la planche : 25 px d'ombre dans chaque colonne des huit cases,
+    # et deux colonnes au plus par pyramide — les pointes extrêmes de la base — n'ont
+    # aucun pixel sombre du tout ; celles-là tombent, et cela ne se voit pas.
+    mask = Image.new("L", (x1 - x0 + 1, y1 - y0 + 1), 0)
+    mp = mask.load()
+    for x in range(x0, x1 + 1):
+        floor = max((y for y in range(y0, y1 + 1) if dark[x][y]), default=None)
+        if floor is None: continue
+        for y in range(y0, floor + 1):
+            if inked[x][y]: mp[x - x0, y - y0] = 255
+    tile = c.crop((x0, y0, x1 + 1, y1 + 1))
+    # Recadrer sur le masque, l'ombre partie : sinon la case garde ses 25 px de vide en
+    # bas, et la pyramide sort étirée et posée trop haut dans son carré.
+    fit = mask.getbbox()
+    tile = tile.crop(fit); mask = mask.crop(fit)
+
+    # Le masque est franc à 1536 px ; c'est la RÉDUCTION qui lisse le contour, en
+    # moyennant les voisins. Elle se fait en PRÉMULTIPLIÉ — le papier mis à zéro d'abord,
+    # sans quoi il saignerait dans les bords lissés et les cernerait de blanc — puis on
+    # démultiplie pour retrouver la couleur.
+    pre = Image.new("RGB", tile.size, (0, 0, 0)); pre.paste(tile, (0, 0), mask)
+    k = SIZE / max(tile.size)
+    dim = (max(1, round(tile.width * k)), max(1, round(tile.height * k)))
+    pre = pre.resize(dim, Image.LANCZOS); al = mask.resize(dim, Image.LANCZOS)
+    out = Image.new("RGBA", dim)
+    op = out.load(); pp = pre.load(); ap = al.load()
+    for y in range(dim[1]):
+        for x in range(dim[0]):
+            a = ap[x, y]
+            if a == 0:
+                op[x, y] = (0, 0, 0, 0); continue
+            op[x, y] = tuple(min(255, round(v * 255 / a)) for v in pp[x, y]) + (a,)
+    sq = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    sq.paste(out, ((SIZE - dim[0]) // 2, (SIZE - dim[1]) // 2), out)
+    sq.save(f"public/brand/pyr-{name}.png")
+
 print("marque regénérée")
 `;
 console.log(execFileSync("python3", ["-c", script], { encoding: "utf8" }).trim());

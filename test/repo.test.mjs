@@ -74,6 +74,28 @@ test("le README est rendu sans badges, titres ni blocs de code", async () => {
   assert.doesNotMatch(r.text, /badge|caché|code\(\)/);
 });
 
+// Le cas qui a motivé le second temps du nettoyage : un README qui s'ouvre en HTML.
+// La balise partait déjà, mais son contenu — le logo, la rangée de badges — restait, et
+// l'aperçu affichait `<img src="public/logo.svg" width="88">` comme une phrase.
+test("le balisage, les tableaux et les listes ne sont pas de la prose", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pyr-repo-"));
+  fs.writeFileSync(path.join(dir, "README.md"),
+    '<p align="center">\n  <img src="public/logo.svg" width="88" alt="">\n</p>\n\n' +
+    "# Apply Studio\n\n" +
+    "Améliorez votre profil et votre CV grâce à l'IA, sur les trois systèmes.\n\n" +
+    "| Version | Date |\n|---|---|\n| 1.7.0 | 2026 |\n\n" +
+    "- une puce, assez longue pour dépasser la longueur minimale\n- une autre\n\n" +
+    "    npm install apply-studio && cd apply-studio\n\n" +
+    "Elle se met à jour toute seule, et c'est tout ce qu'il y a à en savoir.\n");
+  const r = await readme(dir);
+  assert.equal(r.title, "Apply Studio");
+  assert.doesNotMatch(r.text, /<|img|logo\.svg|Version|npm install|une puce/);
+  assert.match(r.text, /Améliorez votre profil/);
+  // Le paragraphe d'après le bruit est bien atteint : filtrer ne doit pas s'arrêter
+  // au premier refus, sinon un README à badges n'aurait plus d'aperçu du tout.
+  assert.match(r.text, /met à jour toute seule/);
+});
+
 test("les langages se comptent par extension, hors dossiers de construction", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pyr-lang-"));
   fs.writeFileSync(path.join(dir, "a.mjs"), "");

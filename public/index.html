@@ -187,10 +187,14 @@
       <span class="fl">Name</span>
       <input id="new-name" type="text" placeholder="Skull King" autocomplete="off">
     </label>
-    <label class="frow">
+    <!-- Deux façons de dire la même chose : un emoji, ou l'une des huit pyramides de la
+         planche. Celle qu'on a touchée en dernier tient l'icône, et le liseré le dit. -->
+    <div class="frow">
       <span class="fl">Icon</span>
-      <input id="new-emoji" type="text" value="🌱" maxlength="8" autocomplete="off" class="narrow">
-    </label>
+      <input id="new-emoji" type="text" maxlength="16" autocomplete="off" class="narrow" aria-label="Emoji">
+      <span class="fsep">or</span>
+      <div class="swatches" id="new-swatches"></div>
+    </div>
     <div class="frow">
       <span class="fl">Folder</span>
       <button class="btn" id="new-parent" type="button"></button>
@@ -217,6 +221,51 @@
     </div>
     <p class="fhint">A pane is a real terminal, opened in that project's folder.</p>
     <ul id="newterm-list" class="tlist"></ul>
+  </dialog>
+
+  <!-- Changer l'icône d'un projet. Le dialogue a une adresse comme les trois autres
+       (`#p=<projet>&s=icon`) et porte sur le projet ouvert — l'en-tête est le seul
+       endroit d'où on l'atteint, et son icône EST le bouton. -->
+  <dialog id="icon" tabindex="-1" autofocus>
+    <div class="dhead flat">
+      <h3>Project icon</h3>
+      <span class="dmeta" id="icon-title"></span>
+      <span class="grow"></span>
+      <button class="btn ghost" id="icon-close">Close</button>
+    </div>
+    <div class="swatches big" id="icon-swatches"></div>
+    <div class="frow">
+      <span class="fl">Or an emoji</span>
+      <input id="icon-emoji" type="text" maxlength="16" autocomplete="off" class="narrow" aria-label="Emoji">
+    </div>
+  </dialog>
+
+  <!-- Écrire ce que le tableau de bord d'un projet doit montrer, AVANT que Claude lise
+       le dépôt. C'est le seul endroit de l'app où l'on parle au modèle sans passer par
+       un terminal, et la consigne n'est pas un réglage : elle appartient au projet et
+       part dans son `.pyra/preview.json`, versionnée avec ses relevés. Le dialogue a
+       une adresse (`#p=<projet>&s=tune`) comme les autres — un panneau qu'on ne peut
+       pas ouvrir sans clic est un panneau qu'aucune capture headless ne verra. -->
+  <dialog id="tune" tabindex="-1" autofocus>
+    <div class="dhead flat">
+      <h3>What should this show?</h3>
+      <span class="dmeta" id="tune-title"></span>
+      <span class="grow"></span>
+      <button class="btn ghost" id="tune-close">Close</button>
+    </div>
+    <p class="fhint">
+      Claude reads the repository and picks the numbers that say whether this project is
+      winning. Tell it what you would pick instead — which numbers matter, where they
+      live, what to leave alone. Leave it empty to let it decide.
+    </p>
+    <textarea id="tune-text" class="tune-in" rows="6" spellcheck="false"
+      placeholder="e.g. The Elo in docs/EXPERIMENTS.md is the number that matters — the last SPRT line. Add downloads from the GitHub releases API. Ignore the test counts, they move for the wrong reasons."></textarea>
+    <p class="fhint" id="tune-note"></p>
+    <menu>
+      <span class="err" id="tune-error"></span>
+      <span class="grow"></span>
+      <button class="btn primary" id="tune-go" type="button">✦ Build with these</button>
+    </menu>
   </dialog>
 
   <!-- Les deux visionneuses du haut de page. Elles sont en LECTURE SEULE : le graphe

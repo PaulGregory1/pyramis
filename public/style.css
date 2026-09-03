@@ -108,7 +108,11 @@ main { flex: 1; display: flex; min-height: 0; }
 .proj:hover { background: var(--panel-2); color: var(--ink); }
 .proj.on { background: var(--panel-2); color: var(--ink); font-weight: 550; }
 .pe { font-size: 15px; width: 19px; text-align: center; flex: 0 0 19px; }
-img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
+/* Une icône de projet est un emoji ou une pyramide de la planche. L'image se mesure en
+   `em` pour suivre la taille du texte partout où l'emoji la suivait — barre latérale,
+   carte, en-tête, tête de panneau — au lieu d'une règle par endroit. Sur `.pe`, dont la
+   police fait 15 px, cela donne les 17 px que le repère « All projects » portait déjà. */
+img.glyph { width: 1.15em; height: 1.15em; flex: 0 0 auto; object-fit: contain; vertical-align: -.2em; }
 .pn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pmeta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--done); }
@@ -243,13 +247,14 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
    s'il gagne, et c'est la première chose qu'on vient chercher — d'où sa place, juste
    sous la bannière et au-dessus de tout le reste. */
 .goal { grid-column: 1 / -1; }
-.goal-h { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 11px; }
-.goal-h .grow { flex: 1; }
-.goal-t { min-width: 0; }
-.goal-t .pv-label { margin-bottom: 3px; }
-.goal-s { font-size: 13px; color: var(--ink-2); max-width: 72ch; }
-.goal .gnote { display: flex; gap: 8px; margin-top: 10px; }
-.goal .gnote .bad { color: var(--blocked); }
+/* Le titre et l'objectif à gauche, les deux boutons à droite et EN HAUT. Alignés sur
+   le BAS, comme avant, ils descendaient avec la phrase : un objectif de trois lignes
+   posait « ↻ Update » au milieu de la carte, loin du titre auquel il appartient. */
+.goal-h { display: flex; align-items: flex-start; gap: 22px; margin-bottom: 13px; }
+.goal-t { min-width: 0; flex: 1; }
+.goal-t .pv-label { margin-bottom: 4px; }
+.goal-a { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.goal-s { font-size: 14px; line-height: 1.5; color: var(--ink-2); max-width: 74ch; }
 
 /* La bande vide, et c'est un écran à part entière : un projet sans mesure n'a pas
    « une case en moins », il n'a rien du tout, et le bouton doit être le seul endroit
@@ -261,7 +266,12 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
 }
 .eg-t { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 .eg-s { font-size: 12.5px; line-height: 1.6; color: var(--dim); max-width: 62ch; }
-.empty-goal .btn.big { margin-top: 7px; padding: 9px 18px; font-size: 13px; }
+.eg-b { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.empty-goal .btn.big { padding: 9px 18px; font-size: 13px; }
+/* Le second bouton reprend le blanc du papier : un fantôme posé sur le fond creusé de
+   la bande vide disparaît, et son survol — qui peint ce même fond — ne se voit pas. */
+.empty-goal .btn.ghost.big { background: var(--panel); border-color: var(--line); }
+.empty-goal .btn.ghost.big:hover { background: var(--panel); border-color: var(--faint); color: var(--ink); }
 .empty-goal .gen { margin-top: 2px; }
 /* Pendant la lecture du dépôt : une barre qui va et vient. Le travail dure une à trois
    minutes et rien d'autre ne bouge à l'écran — sans elle, le bouton aurait l'air mort. */
@@ -272,44 +282,126 @@ img.pe.glyph { width: 17px; height: 17px; flex: 0 0 17px; }
 }
 @keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
 
-/* Les cartes. `auto-fit` plutôt qu'un nombre de colonnes : une seule mesure prend
-   toute la largeur et sa courbe devient lisible de loin, quatre se rangent en ligne. */
-.mxs { display: grid; grid-template-columns: repeat(auto-fit, minmax(226px, 1fr)); gap: 10px; }
+/* La ligne de pied de la bande : ce que le dernier clic a donné, et le fichier où
+   tout ça vit. Elle porte son propre nom de classe — `.gnote` est déjà pris par les
+   notes posées directement dans la grille de `.pv`, qui se règlent autrement. */
+.gfoot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px;
+  margin-top: 12px; font-size: 11.5px; color: var(--faint);
+}
+.gfoot .ok { color: var(--done); }
+.gfoot .bad { color: var(--blocked); }
+.gfoot code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+/* ------------------------------------------------- l'aperçu chiffré : les cartes */
+/* `auto-fit` plutôt qu'un nombre de colonnes : une seule mesure prend toute la largeur
+   et son dessin devient lisible de loin, quatre se rangent en ligne.
+
+   Toutes les cartes ont la MÊME charpente, et c'est ce qui les fait tenir en rangée :
+   un en-tête, un grand nombre, une bande de dessin de hauteur FIXE, puis un pied collé
+   en bas. Une source de deux lignes ne décale donc plus rien de ce qui la suit — avant,
+   la rangée devenait un escalier dès que deux cartes ne disaient pas la même longueur. */
+.mxs { display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr)); gap: 13px; }
 .mxs.one { grid-template-columns: minmax(0, 1fr); }
 .mx {
-  background: var(--panel-2); border: 1px solid transparent; border-radius: var(--r-sm);
-  padding: 10px 12px 11px; min-width: 0;
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 13px 15px 12px; box-shadow: 0 1px 2px rgba(0, 8, 35, .035);
 }
 .mx.bad { border-color: #f0d3da; }
-.mx-h { display: flex; align-items: baseline; gap: 8px; }
+.mx-h { display: flex; align-items: center; gap: 8px; min-height: 17px; }
 .mx-l { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: var(--track); color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* La variation depuis le relevé d'avant. Elle porte la seule couleur de la carte, et
+/* La variation depuis le relevé d'avant. Elle porte la seule couleur de l'en-tête, et
    elle la porte dans le SENS du projet : sur une latence, descendre est une bonne
    nouvelle, et un vert qui dirait le contraire vaudrait mieux ne rien dire. */
-.mx-d { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.mx-d.up { color: var(--done); }
-.mx-d.down { color: var(--blocked); }
-.mx-d.flat { color: var(--faint); }
-.mx-v { display: flex; align-items: baseline; gap: 5px; font-size: 27px; font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; }
-.mx-v i { font-size: 12px; font-weight: 500; font-style: normal; color: var(--faint); letter-spacing: 0; }
-/* Hauteur FIXE, largeur libre : c'est ce qui tient une métrique seule à la même taille
-   que quatre en ligne. Le repère est donc étiré, et rien de rond n'a le droit d'y
-   entrer — voir `spark()`. */
-.mx-g { display: block; width: 100%; height: 78px; margin: 6px 0 2px; }
-.mx-flat { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 3 4; }
-.mx .gauge { margin: 8px 0 4px; }
-.mx-t { display: flex; gap: 5px; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.mx-t b { color: var(--ink-2); font-weight: 600; }
-.mx-s { font-size: 11px; color: var(--dim); margin-top: 5px; line-height: 1.45; }
-/* La commande est MONTRÉE, et c'est le prix du marché : Pyra la lance, donc elle ne
-   peut pas la cacher. Une ligne, coupée, le tout au survol dans l'infobulle — et le
-   fichier `.pyra/preview.json` du dépôt porte la version qu'on corrige. */
-.mx-c {
-  display: block; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.mx-d {
+  margin-left: auto; flex: 0 0 auto; font-size: 10.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  padding: 2px 7px; border-radius: 20px;
 }
-.mx-e { margin-top: 5px; font-size: 11px; color: var(--blocked); }
-.mx-n { margin-top: 5px; font-size: 10.5px; color: var(--faint); }
+.mx-d.up { color: var(--done); background: #e8f5f0; }
+.mx-d.down { color: var(--blocked); background: #fcecf0; }
+.mx-d.flat { color: var(--faint); background: var(--panel-2); }
+.mx-v { display: flex; align-items: baseline; gap: 5px; font-size: 32px; font-weight: 600; letter-spacing: -.032em; font-variant-numeric: tabular-nums; line-height: 1.1; margin-top: 4px; }
+.mx-v i { font-size: 12px; font-weight: 500; font-style: normal; color: var(--faint); letter-spacing: 0; }
+/* La cible en pastille, pour les dessins qui ne l'écrivent pas eux-mêmes (la jauge la
+   porte sous sa barre). Elle est à droite du nombre, pas dessous : c'est une borne, pas
+   une deuxième mesure. */
+.mx-tg {
+  margin-left: auto; align-self: center; font-size: 10.5px; color: var(--dim);
+  background: var(--panel-2); padding: 2px 8px; border-radius: 20px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0;
+}
+
+/* La bande du dessin. Hauteur FIXE, largeur libre : c'est ce qui tient une métrique
+   seule à la même taille que quatre en ligne, et ce qui aligne les pieds. Les trois
+   dessins la remplissent entièrement, quel qu'il soit. */
+.mx-b { position: relative; height: 74px; margin: 11px 0 0; }
+/* Rien à dessiner encore : un état, pas un trou. Un trait plat dirait « stable », ce
+   qui est faux au premier relevé, et une bande vide dirait « cassé ». */
+.mx-wait {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 0 13px; border-radius: var(--r-sm);
+  border: 1px dashed var(--line-2); font-size: 10.5px; line-height: 1.45; color: var(--faint);
+}
+
+/* La courbe. Le repère SVG est étiré, donc rien de rond n'a le droit d'y entrer — voir
+   `lineChart()`. La pastille du dernier relevé est posée par-dessus, en HTML et en
+   pourcentages : c'est le seul moyen qu'elle reste ronde à toutes les largeurs. */
+.mx-line { position: relative; height: 100%; }
+.mx-g { display: block; width: 100%; height: 100%; }
+.mx-dot {
+  position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 2.5px var(--panel);
+}
+
+/* L'histogramme. En HTML : une barre n'a aucune forme propre à défendre contre
+   l'étirement de la carte, et deux relevés comme trente se rangent tout seuls. La
+   dernière barre porte le dégradé — c'est celle que le grand nombre au-dessus dit. */
+.mx-bars { position: relative; height: 100%; display: flex; align-items: stretch; gap: 3px; }
+.mx-bars.thin { gap: 1.5px; }
+.mx-bars .bc { position: relative; flex: 1 1 0; min-width: 0; }
+.mx-bars .bc i {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 26px; min-width: 2px; border-radius: 2px; background: #dcd9fa;
+}
+.mx-bars .bc.on i { background: var(--grad); }
+.mx-zero { position: absolute; left: 0; right: 0; height: 1px; background: var(--line-2); }
+
+/* La barre qui évolue. Elle part du premier relevé et va vers la cible ; les deux
+   bornes sont écrites dessous, sans quoi une jauge ne se lit pas, elle se devine. */
+.mx-gauge { height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.gg-c { display: flex; align-items: baseline; gap: 5px; font-size: 11px; color: var(--dim); }
+.gg-c b { font-size: 14px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.gg-t { height: 6px; border-radius: 6px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.gg-t i { display: block; height: 100%; min-width: 3px; border-radius: 6px; background: var(--grad); transition: width .25s ease; }
+.mx-gauge.done .gg-t i { background: var(--done); }
+.gg-e { display: flex; gap: 8px; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.gg-e .grow { flex: 1; }
+.gg-e .aim { color: var(--dim); }
+
+/* Le pied, collé en bas : c'est lui qui aligne la dernière ligne de quatre cartes dont
+   les sources n'ont pas la même longueur. */
+.mx-f { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.mx-s {
+  font-size: 11px; color: var(--dim); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* La commande est MONTRÉE, et c'est le prix du marché : Pyra la lance, donc elle ne
+   peut pas la cacher. Mais elle est une NOTE DE BAS DE PAGE, pas un bloc de code posé
+   au milieu de la carte : une ligne, coupée, en encre pâle, qui se réveille au survol
+   et donne le tout dans l'infobulle. Le fichier `.pyra/preview.json` du dépôt porte la
+   version qu'on corrige. */
+.mx-c {
+  display: block; margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px; line-height: 1.5; color: var(--faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default;
+}
+.mx-c:hover { color: var(--dim); }
+.mx-c::before { content: "$ "; opacity: .55; }
+.mx-e { margin-top: 7px; font-size: 11px; color: var(--blocked); }
+.mx-n { margin-top: 7px; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 
 .pv-main { min-width: 0; }
 .pv-blurb { font-size: 13px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; max-width: 80ch; }
@@ -727,6 +819,45 @@ dialog menu button { background: var(--panel); border: 1px solid var(--line-2); 
 }
 .frow input.narrow { flex: 0 0 84px; }
 .frow select:focus, .frow input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+/* L'icône de l'en-tête est un bouton, mais elle ne doit pas en avoir l'air tant qu'on
+   ne la survole pas : à l'encre, à sa place, comme le nom du projet dans la tête d'un
+   panneau. Trois boutons dessinés dans cet en-tête, et l'identité du projet passerait
+   après les commandes. */
+.pebtn {
+  display: flex; align-items: center; background: none; border: 0; padding: 3px;
+  margin: -3px; border-radius: var(--r-sm); cursor: pointer; font: inherit; color: inherit;
+}
+.pebtn:hover { background: var(--panel-2); }
+
+/* La planche des huit. Les cases ne portent ni cadre ni fond : ce sont les pyramides
+   qu'on regarde, et huit cadres autour d'elles feraient une grille de plus à lire.
+   Seule la choisie est cerclée — l'état est le SEUL rôle de la couleur ici. */
+.swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.swatch {
+  display: flex; align-items: center; justify-content: center; padding: 4px;
+  background: none; border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer;
+}
+.swatch:hover { background: var(--panel-2); }
+.swatch.on { border-color: var(--accent); background: var(--panel-2); }
+.swatch img.glyph { width: 20px; height: 20px; }
+/* Dans le formulaire de création, la planche partage sa ligne avec le champ emoji et le
+   « or » : les huit doivent tenir d'un seul rang, sinon la huitième tombe seule sous les
+   sept autres et la ligne se lit comme un accident. D'où des cases plus serrées qu'ailleurs.
+   Le retour à la ligne reste PERMIS : sur une fenêtre étroite le dialogue rétrécit avec
+   elle, et deux rangs valent mieux qu'un débordement. */
+#new-swatches { gap: 3px; }
+#new-swatches .swatch { padding: 3px; }
+
+.swatches.big { gap: 6px; }
+.swatches.big .swatch { padding: 7px; }
+.swatches.big .swatch img.glyph { width: 34px; height: 34px; }
+
+/* Le champ et la planche disent la même valeur. Le liseré de l'accent dit lequel des
+   deux tient l'icône en ce moment — sans lui, un emoji laissé dans le champ après un
+   clic sur une pyramide laisserait croire que c'est encore lui qui compte. */
+.frow input.on { border-color: var(--accent); }
+.frow .fsep { font-size: 11.5px; color: var(--faint); }
+
 .frow .btn { flex: 1; justify-content: flex-start; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fhint { margin: 2px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--faint); }
 .fhint i { font-style: normal; color: var(--dim); }
@@ -757,15 +888,40 @@ dialog menu button { background: var(--panel); border: 1px solid var(--line-2); 
 .conn .cs { color: var(--dim); }
 .conn code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; }
 
-/* Les automatismes. Une case, un intitulé, une ligne d'explication — et pour celui
-   qui dépense, une étiquette qui le dit. C'est le seul de la liste qui coûte. */
+/* Les automatismes. Une case, un intitulé, une étiquette pour celui qui dépense —
+   le seul de la liste qui coûte. L'explication, elle, s'est repliée dans un « ? » :
+   six paragraphes empilés faisaient d'un formulaire de création une page à lire,
+   alors que la ligne suffit à décider et que le détail ne sert qu'au doute. */
 .opts { display: flex; flex-direction: column; gap: 2px; }
-.opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
+.opt { position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 8px 9px; border-radius: 8px; cursor: pointer; }
 .opt:hover { background: var(--panel-2); }
 .opt input { margin: 2px 0 0; accent-color: var(--accent); width: 14px; height: 14px; flex: 0 0 14px; }
 .opt .ol { font-size: 12.5px; color: var(--ink); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .opt .od { font-size: 11.5px; color: var(--faint); line-height: 1.5; margin-top: 1px; }
 .opt.off { opacity: .45; }
+
+/* Le « ? » et sa bulle. Le point reste discret — il n'a rien à dire tant qu'on ne
+   le regarde pas ; la bulle, elle, s'ancre sur la LIGNE et non sur le point (`.oq`
+   n'est pas positionné, donc l'absolu remonte jusqu'à `.opt`), ce qui la tient
+   toujours dans la largeur du dialogue, où qu'ait fini le point après le retour à
+   la ligne des étiquettes. */
+.opt .oq {
+  flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid var(--line-2); color: var(--faint);
+  font-size: 9.5px; font-weight: 700; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; cursor: help;
+}
+.opt .oq:hover, .opt .oq:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.opt .ob {
+  position: absolute; left: 33px; right: 9px; bottom: calc(100% - 6px);
+  padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--panel); border: 1px solid var(--line-2);
+  box-shadow: 0 10px 26px #0008231f;
+  font-size: 11.5px; font-weight: 400; line-height: 1.5; color: var(--ink-2);
+  text-align: left; z-index: 3;
+  opacity: 0; visibility: hidden; transition: opacity .12s;
+}
+.opt .oq:hover .ob, .opt .oq:focus-visible .ob { opacity: 1; visibility: visible; }
 .tag {
   font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
   padding: 1.5px 6px; border-radius: 20px; background: var(--panel-2); color: var(--dim);
@@ -787,11 +943,37 @@ dialog menu button { background: var(--panel); border: 1px solid var(--line-2); 
 .fstep .fm { color: var(--faint); min-width: 0; }
 
 /* --------------------------------------------------- les deux visionneuses */
+/* La fenêtre de consigne. Elle tient en une phrase et un champ : ce qu'on veut voir
+   mesuré, dans ses mots. Le champ est le seul de l'app où l'on écrive plusieurs
+   lignes — d'où sa hauteur, et un redimensionnement VERTICAL seulement : le laisser
+   s'élargir déborderait du dialogue. */
+#tune { width: min(560px, 94vw); padding: 0 20px 20px; }
+.tune-in {
+  display: block; width: 100%; margin-top: 10px; resize: vertical; min-height: 92px;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line-2);
+  border-radius: var(--r-sm); padding: 10px 12px;
+  font: inherit; font-size: 12.5px; line-height: 1.55;
+}
+.tune-in:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px #4a45e81f; }
+.tune-in::placeholder { color: var(--faint); }
+#tune-note { margin-top: 9px; }
+
 /* Deux dialogues plein écran, en lecture seule : le graphe du code et l'arbre des
    commits. Ils empruntent le blanc et l'encre du reste, et n'ajoutent de couleur que
    là où elle porte une information — la communauté d'un noeud, la voie d'une branche. */
 dialog.big { width: 94vw; max-width: 1480px; height: 88vh; padding: 0; }
 dialog.big[open] { display: flex; flex-direction: column; }
+/* Le dialogue garde les 20 px de retrait du gabarit — `.dhead.flat` les reprend en
+   marge négative pour aller d'un bord à l'autre —, donc la planche et le champ ne
+   posent que des marges. La largeur est CALCULÉE pour les huit cases d'un seul rang :
+   8 x 50 px (34 de pyramide, 7 de retrait de chaque côté, 1 de liseré) + 7 intervalles
+   de 6 + les 20 px de retrait de chaque bord. Une planche qui se casse en 6 + 2 se lit
+   comme une erreur, pas comme un choix — si la taille des cases bouge, ce nombre suit. */
+#icon { width: min(484px, 92vw); }
+#icon .swatches { margin: 4px 0 15px; }
+#icon .frow { margin: 0; }
+#icon .frow .fl { flex: 0 0 auto; }
+
 .dhead { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; padding: 11px 14px; border-bottom: 1px solid var(--line); }
 .dhead h3 { margin: 0; white-space: nowrap; }
 .dmeta { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }

@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { readNumber, graft, collect, read, write, FILE } from "../preview.mjs";
+import { readNumber, graft, collect, read, write, buildPrompt, FILE } from "../preview.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "pyr-pv-"));
 
@@ -74,6 +74,43 @@ test("une clé inconnue s'ajoute, et le tableau reste borné", () => {
   const over = graft(full, { metrics: [{ key: "e", label: "E", command: "echo 1" }] });
   assert.equal(over.spec.metrics.length, 4);
   assert.equal(over.added, 0);
+});
+
+/* ------------------------------------------------------------------ le dessin */
+
+/* Le champ `chart` dit lequel des trois dessins Pyra pose sous le nombre — et c'est
+   le modèle qui choisit, guidé par `skills/preview-chart/SKILL.md`. Ce qui est testé
+   ici est le seul endroit où l'app a le droit de le contredire : une valeur qu'elle ne
+   sait pas dessiner, et une jauge sans cible, qui serait une barre ne se remplissant
+   jamais. Les deux retombent sur la courbe, côté serveur ET côté interface. */
+
+test("un dessin inconnu, ou absent d'un vieux fichier, se déduit de la cible", async () => {
+  const dir = tmp();
+  await write(dir, { goal: "", metrics: [
+    { key: "a", label: "A", command: "echo 1", points: [] },
+    { key: "b", label: "B", chart: "camembert", command: "echo 1", points: [] },
+    // Un fichier d'avant le champ, avec une cible : il portait une barre de progression,
+    // et il doit la garder. Sans ça, la mise à jour de l'app la lui retirait en silence.
+    { key: "c", label: "C", target: 3, command: "echo 1", points: [] },
+  ] });
+  const spec = await read(dir);
+  assert.deepEqual(spec.metrics.map((m) => m.chart), ["line", "line", "gauge"]);
+});
+
+test("une jauge sans cible retombe sur la courbe — une barre qui ne se remplit jamais", () => {
+  const g = graft({ goal: "", metrics: [] }, { metrics: [
+    { key: "rank", label: "Rang", chart: "gauge", target: 3, command: "echo 1" },
+    { key: "dl", label: "Downloads", chart: "gauge", command: "echo 1" },
+    { key: "tests", label: "Tests", chart: "bars", command: "echo 1" },
+  ] });
+  assert.deepEqual(g.spec.metrics.map((m) => m.chart), ["gauge", "line", "bars"]);
+});
+
+test("le dessin traverse le disque, comme le reste de la métrique", async () => {
+  const dir = tmp();
+  const g = graft({ goal: "", metrics: [] }, { metrics: [{ key: "t", label: "T", chart: "bars", command: "echo 1" }] });
+  await write(dir, g.spec);
+  assert.equal((await read(dir)).metrics[0].chart, "bars");
 });
 
 /* ---------------------------------------------------------------- les relevés */
@@ -143,6 +180,34 @@ test("une métrique sans cible n'en gagne pas une au premier aller-retour", asyn
   const dir = tmp();
   await write(dir, { goal: "", metrics: [metric({ target: null, points: [{ at: 1, v: 5 }] })] });
   assert.equal((await read(dir)).metrics[0].target, null);
+});
+
+/* ------------------------------------------------------------- la consigne */
+
+test("la consigne de l'utilisateur traverse le disque et la greffe", async () => {
+  const dir = tmp();
+  await write(dir, { goal: "Gagner", notes: "L'Elo de docs/EXPERIMENTS.md, rien d'autre.", metrics: [] });
+  const back = await read(dir);
+  assert.equal(back.notes, "L'Elo de docs/EXPERIMENTS.md, rien d'autre.");
+  // La greffe ne la touche pas : elle vient de l'utilisateur, le modèle ne fait que la
+  // lire. Une proposition qui prétendrait l'écrire ne serait pas écoutée.
+  const g = graft(back, { goal: "", notes: "autre chose", metrics: [{ key: "elo", label: "Elo", command: "echo 1", chart: "line" }] });
+  assert.equal(g.spec.notes, "L'Elo de docs/EXPERIMENTS.md, rien d'autre.");
+});
+
+test("la consigne arrive dans le prompt, telle quelle", async () => {
+  const dir = tmp();
+  const project = { name: "Test", path: dir };
+  const spec = { goal: "", notes: "", metrics: [] };
+  const said = await buildPrompt(project, spec, "Compte les téléchargements, pas les étoiles.");
+  assert.match(said, /Compte les téléchargements, pas les étoiles\./);
+  // Les deux skills sont GREFFÉES : sans elles, le modèle choisit un dessin et une
+  // composition au hasard, et rien à l'exécution ne dirait qu'elles ont disparu.
+  assert.match(said, /Each card answers a DIFFERENT question/);
+  assert.match(said, /A filled sparkline over TIME|filled sparkline/);
+  // Rien dit : la place est tenue par une phrase, jamais par un `{{notes}}` resté nu.
+  const quiet = await buildPrompt(project, spec, "");
+  assert.doesNotMatch(quiet, /\{\{/);
 });
 
 test("les relevés hors forme sont écartés, pas gardés en NaN", async () => {

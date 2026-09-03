@@ -1,0 +1,39 @@
+{
+  "goal": "Tenir N sessions Claude en parallèle sans jamais abîmer un dépôt de l'utilisateur, et devenir une app qui s'installe sur une machine qui ne l'a pas écrite.",
+  "metrics": [
+    {
+      "key": "tests",
+      "label": "Tests au vert",
+      "unit": "",
+      "target": null,
+      "better": "up",
+      "source": "ligne « # pass » de la sortie TAP de `node --test test/*.test.mjs`",
+      "command": "node --test --test-reporter=tap test/*.test.mjs 2>/dev/null | awk '/^# pass /{p=$3} END{if(p!=\"\")print p}'",
+      "decimals": 0,
+      "error": "",
+      "points": [
+        {
+          "at": 1788348456327,
+          "v": 77
+        }
+      ]
+    },
+    {
+      "key": "hardcoded",
+      "label": "Chemins codés en dur",
+      "unit": "",
+      "target": 0,
+      "better": "down",
+      "source": "occurrences de chemins personnels dans le code source, comptées par grep",
+      "command": "grep -rhoE '/Users/[A-Za-z0-9._-]+|\"Documents/' --include='*.mjs' --include='*.js' --include='*.html' --include='*.sh' --exclude-dir=node_modules --exclude-dir=graphify-out --exclude-dir=.git . | wc -l",
+      "decimals": 0,
+      "error": "",
+      "points": [
+        {
+          "at": 1788348456327,
+          "v": 12
+        }
+      ]
+    }
+  ]
+}

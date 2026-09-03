@@ -1,4 +1,4 @@
-<!-- graph-baseline: 4644a07 -->
+<!-- graph-baseline: 786f416 -->
 # Pyra — carte du code
 
 Ce document décrit le dépôt tel qu'il était au commit indiqué en première ligne.
@@ -105,11 +105,11 @@ Trois règles en découlent, et elles tiennent toute la feuille de style :
    (`--track: .16em`, capitales, graisse 600). C'est ce détail, plus que la
    couleur, qui fait reconnaître la marque à l'intérieur de l'interface.
 
-`scripts/brand.mjs` regénère les déclinaisons depuis les TROIS originaux : le
+`scripts/brand.mjs` regénère les déclinaisons depuis les QUATRE originaux : le
 mot-symbole rogné sur fond transparent (la police du logo n'existe pas sur la
 machine — la réapprocher donnerait un faux, donc c'est une image), la pyramide
-en 256 / 128 / 64 px, et le logo du graphe en 128 px. Les originaux restent dans
-`public/brand/`.
+en 256 / 128 / 64 px, le logo du graphe en 128 px, et les huit pyramides de couleur
+découpées de `colors-pyr.png`. Les originaux restent dans `public/brand/`.
 
 Le logo du graphe (`graph-pyr.png` → `graph-128.png`) est la seule exception mesurée
 à la règle 2 : un dégradé violet qui n'est pas l'accent. Il la tient quand même,
@@ -130,6 +130,45 @@ Le mot-symbole est rendu à HAUTEUR constante (85 px), pas à largeur constante 
 des lettres à l'écran. C'est ce qui a permis de raccourcir PYRAMIS en PYRA — la
 source est rognée après le Δ — sans que les quatre lettres restantes grossissent
 pour remplir la même largeur.
+
+### L'icône d'un projet, et les huit pyramides
+
+Un projet porte UNE chaîne dans le registre, et elle dit l'une de deux choses : un
+emoji (« 🌱 »), ou le jeton d'une des huit pyramides de couleur (« pyr:violet »). Le
+serveur ne tranche pas entre les deux — `icon()` dans `server.mjs` ne juge que la
+longueur (seize caractères : le plus long des jetons, ou un emoji composé comme 🏴‍☠️
+qui en fait sept à lui seul). C'est `projIcon()` dans `app.js` qui lit le jeton, et
+c'est le SEUL endroit qui le sache : cinq endroits posent cette icône — la barre
+latérale, la carte de la vue d'ensemble, l'en-tête d'un projet, la liste du dialogue
+« New terminal » et la tête d'un panneau — et le premier oublié afficherait
+« pyr:violet » en toutes lettres.
+
+Les huit images ne sont pas dessinées à la main : `brand.mjs` les DÉCOUPE de la
+planche `colors-pyr.png` (4 x 2 cases, chacune une pyramide au-dessus du mot-symbole).
+La découpe se lit sur les bandes vides de la planche, jamais sur des coordonnées
+écrites dans le script — une planche redessinée d'un pixel décalerait les huit d'un
+coup, et le seul symptôme serait une icône rognée de travers. L'ombre portée s'en va,
+et cela se décide par la PLACE (ce qui tombe sous le dernier pixel sombre d'une
+colonne), aucun seuil ne la séparant du gris clair des faces.
+
+L'ORDRE de la liste est un contrat : `names` dans `brand.mjs` et `PYR` dans `app.js`
+disent les mêmes huit noms dans le même ordre, parce que le nom du fichier EST le
+jeton gardé dans le registre. Les deux, jamais une seule.
+
+Le choix s'offre aux deux endroits qui peuvent le poser, et c'est le même geste :
+le formulaire de création (`renderCreator`) et la page d'un projet, dont l'icône
+d'en-tête EST le bouton qui la change (`iconButton` → dialogue `#icon`). La fabrique
+`iconSwatches()` ne sait pas ce qu'elle change — elle montre le choix courant et
+appelle `pick` : écrire dans le formulaire ou envoyer un PATCH appartient à
+l'appelant. Sans cette coupure, le dialogue aurait fini par savoir créer des projets.
+
+Aux deux endroits, le champ emoji et la planche disent la même valeur, et celui des
+deux qu'on a touché en dernier gagne : le liseré d'accent (`.frow input.on`) dit
+lequel tient l'icône en ce moment. Deux largeurs sont CALCULÉES pour que les huit
+cases tiennent d'un seul rang — `#new-swatches` resserre ses cases parce qu'elle
+partage sa ligne avec le champ et le « or », et `#icon` fixe sa largeur (484 px) sur
+la taille des grandes cases. Une planche qui se casse en 6 + 2 se lit comme une
+erreur, pas comme un choix ; si la taille des cases bouge, ces deux nombres suivent.
 
 ## Les deux chemins d'entrée, et pourquoi ils divergent
 
@@ -283,6 +322,9 @@ jusqu'à 70 %, puis `--warn`, puis `--blocked` — la couleur ne vient qu'avec l
 | `milestones.mjs` | Analyse et réécriture de `MILESTONES.md`. Aucune dépendance au reste. |
 | `generate.mjs` | L'appel au modèle : un `claude -p` en lecture seule dans le dépôt. |
 | `prompts/milestones.md` | Le prompt de génération. Relu à chaque appel, donc modifiable à chaud. |
+| `prompts/preview.md` | Le prompt de l'aperçu chiffré. Relu à chaque appel lui aussi. |
+| `skills/preview-chart/SKILL.md` | La skill du DESSIN : comment le modèle choisit entre courbe, histogramme et jauge. Greffée dans le prompt ci-dessus. |
+| `skills/preview-dashboard/SKILL.md` | La skill de la COMPOSITION : ce qui mérite une carte, la longueur des intitulés, et comment écrire une ligne de `sh` qu'on n'essaiera jamais. Greffée elle aussi. |
 | `preview.mjs` | L'aperçu chiffré : le `.pyra/preview.json` d'un dépôt, ses collecteurs, et le tour de modèle qui les écrit. |
 | `graph.mjs` | Le graphe de connaissance d'un dépôt : construction Graphify, état, exclusion git, pointeur, lecture pour la visionneuse. |
 | `repo.mjs` | Ce que le dépôt dit de lui-même : README, langages, branche, et l'histoire git mise en voies. Git en LECTURE seule. Aucune dépendance au reste. |
@@ -349,7 +391,40 @@ ensuite, dans le dossier du projet, sur un clic. La tentation évidente — donn
 au modèle pour qu'il vérifie sa commande — ferait de « Build preview » un shell ouvert
 chez l'utilisateur derrière une promesse de graphique. Le prix de ce refus est qu'une
 commande peut être fausse : elle est donc AFFICHÉE sous sa courbe, son erreur avec, et
-le fichier se corrige à la main.
+le fichier se corrige à la main. Affichée, mais en NOTE DE BAS DE PAGE — une ligne
+coupée, en encre pâle, sous un filet : elle doit être lisible, elle n'a pas à être le
+deuxième objet le plus visible d'une carte de 240 px.
+
+**L'utilisateur parle avant le modèle, et sa phrase vit dans son dépôt.** « Customize »
+(`#tune`) ouvre le seul endroit de l'app où l'on s'adresse au modèle sans passer par un
+terminal : ce qu'on veut voir mesuré, dans ses mots. La phrase part en TÊTE du prompt,
+au-dessus des consignes de Pyra, et le prompt dit qu'elle les emporte — sauf sur ce
+qu'une commande a le droit de faire, qui n'est pas une préférence. Elle est ensuite
+gardée dans le `.pyra/preview.json`, à côté des relevés : relue à la construction
+suivante, corrigeable dans un éditeur, versionnée. Trois nuances qui se sont payées :
+`notes` traverse `graft()` INTACT (elle vient de l'utilisateur, pas de la proposition) ;
+le bouton simple envoie `null` et REPREND la consigne du fichier, quand la fenêtre
+envoie une chaîne — vide, elle efface ; et `renderTune()` ne remplit le champ qu'une
+fois par ouverture (`dataset.for`), sinon la boucle des quatre secondes effacerait une
+phrase en cours de frappe.
+
+**Deux skills, une seule porte.** `preview-chart` répond « quel dessin » ; `preview-dashboard`
+répond « quelle rangée » — ce qui mérite une carte, la longueur d'un intitulé, les
+guillemets d'une commande qu'on n'essaiera jamais (le `syntax error: unexpected end of
+file` affiché sous une carte vient de là). Les deux sont greffées en entier par
+`buildPrompt()`, jamais découvertes par le CLI : `claude -p` tourne dans le dépôt de
+quelqu'un d'autre. Une skill manquante ne fait pas échouer la construction —
+`skillBody()` rend une chaîne vide, le prompt garde ses consignes, et le résultat est
+moins bien composé. C'est ce qui permet de les retoucher sans redémarrer le serveur.
+
+**Le README n'entre dans l'aperçu que s'il est de la PROSE.** `readme()` nettoie en deux
+temps, et les deux comptent : `declutter()` retire le balisage, `isProse()` jette ensuite
+les paragraphes qui n'ont jamais été des phrases — un tableau, une liste à puces, un bloc
+de commandes indenté. Sans le second temps, la balise `<p align="center">` disparaissait
+et la rangée de badges qu'elle contenait restait : c'est ainsi qu'un
+`<img src="public/logo.svg" width="88">` s'affichait au milieu de la page comme une
+phrase. Le test de l'indentation se fait sur le paragraphe BRUT — collecter les blancs
+d'abord efface la seule chose qui distingue un bloc de code d'un paragraphe.
 
 **Trois pièges dans les relevés, tous trouvés par un test.** `readNumber()` prend la
 DERNIÈRE ligne, pas la première : un script qui dit « running 40 games » avant de
@@ -359,12 +434,33 @@ et raconterait un effondrement là où il n'y a qu'un `awk` cassé. Et une métr
 cible en gagnait une à 0 au premier aller-retour disque, `Number(null)` valant 0 :
 d'où le `typeof m.target === "number"` de `normalize()`.
 
+**Trois dessins, et c'est le MODÈLE qui choisit.** Le champ `chart` d'une métrique vaut
+`line`, `bars` ou `gauge` — une courbe dans le temps, un histogramme, une barre vers la
+cible — et il est rempli par le tour de modèle, guidé par `skills/preview-chart/SKILL.md`
+que `buildPrompt()` greffe dans le prompt. La skill est greffée et non découverte par le
+CLI : `claude -p` tourne dans le dépôt de l'utilisateur, qui n'a aucune raison de porter
+les skills de Pyra. Sans ce champ, quatre métriques qui ne posent pas la même question
+portaient la même courbe. Deux garde-fous, aux DEUX bouts (`chartOf()` dans `preview.mjs`,
+`chartKind()` dans `app.js`, à garder d'accord) : sans indication, une métrique qui a une
+cible prend la jauge — c'est ce que l'interface montrait avant le champ, et un vieux
+fichier ne doit pas perdre sa barre en silence ; et une jauge sans cible retombe sur la
+courbe, parce qu'une barre qui ne se remplira jamais se lit comme une panne.
+
 **La courbe montre la forme, la jauge montre le chemin.** Faire entrer la cible dans
 l'échelle de la courbe écrasait la donnée contre le bas du cadre : un Elo qui va de
 1712 à 1834 devient une ligne plate dès qu'on ouvre l'axe jusqu'à 2000. Le repère de
-`spark()` tient donc à ce qui a été MESURÉ, et la cible se lit sous lui, en jauge et
-en pourcentage. Le `viewBox` garde ses proportions — un `preserveAspectRatio="none"`
-ferait des ellipses de tous les points.
+`lineChart()` tient donc à ce qui a été MESURÉ, et la cible se lit ailleurs — en
+pastille près du grand nombre, ou en jauge quand c'est ELLE la nouvelle. La jauge part
+du PREMIER relevé, pas de zéro : ce qu'on veut voir est le chemin fait depuis qu'on
+mesure. L'histogramme, lui, part bien de zéro — c'est ce qu'une barre promet.
+
+**Le repère de la courbe est étiré, et rien de rond n'a le droit d'y entrer.** La bande
+de dessin a une hauteur FIXE et une largeur libre (c'est ce qui tient une métrique seule
+à la même taille que quatre en ligne), donc `preserveAspectRatio="none"` : un cercle y
+deviendrait une ellipse quatre fois plus large que haute. Le trait s'en sort par
+`vector-effect`, la pastille du dernier relevé est posée par-dessus EN HTML, en
+pourcentages, et l'histogramme est en HTML de bout en bout — une barre n'a aucune forme
+propre à défendre.
 
 **Les quatre colonnes ont laissé la place à une liste.** Un tableau rangé par statut
 perdait l'ORDRE DU FICHIER, qui est celui que l'utilisateur a écrit et le seul qui
@@ -1013,9 +1109,14 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Modifier la barre latérale | `public/app.js` (`renderSide`), `public/style.css` (`#side`, `.sessions`) |
 | Toucher à la pastille d'état d'une session | `public/app.js` (`WORKING`, `WORK_TTL`, `paneState`, `paintDots`), `public/style.css` (`.sdot.work` / `.rest` / `.cold`) |
 | Toucher au passage d'une vue à l'autre | `public/app.js` (`showProject`, `focusPane`, `showView`) — les deux sens, jamais un seul |
-| Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `languages`), `public/app.js` (`previewPanel`) |
-| Changer ce que l'aperçu chiffré montre | `public/app.js` (`goalBand`, `metricCard`, `spark`), `public/style.css` (`.goal`, `.mx*`) |
-| Changer ce que le modèle propose comme métrique | `prompts/preview.md`, puis `SCHEMA` dans `preview.mjs` — les deux, jamais un seul |
+| Changer ce que l'aperçu montre | `repo.mjs` (`overview`, `readme`, `declutter`, `isProse`, `languages`), `public/app.js` (`previewPanel`), puis `test/repo.test.mjs` |
+| Changer ce que l'aperçu chiffré montre | `public/app.js` (`goalBand`, `metricCard`), `public/style.css` (`.goal*`, `.mx*`, `.gfoot`) |
+| Retoucher un des trois dessins | `public/app.js` (`DRAW`, `lineChart`, `barsChart`, `gaugeChart`), `public/style.css` (`.mx-b`, `.mx-line`, `.mx-bars`, `.mx-gauge`) |
+| Changer la façon dont le modèle CHOISIT un dessin | `skills/preview-chart/SKILL.md` (aucun redémarrage) |
+| Changer ce qui fait une BONNE rangée de cartes | `skills/preview-dashboard/SKILL.md` (aucun redémarrage) — intitulés, sources, quotes d'une commande |
+| Toucher à la consigne de l'utilisateur | `public/index.html` (`#tune`), `public/app.js` (`tuneButton`, `openTune`, `renderTune`, `submitTune`), `server.mjs` (`startPreview`), `preview.mjs` (`brief`, `buildPrompt`), `prompts/preview.md` — et `MAX_NOTES` des deux côtés |
+| Ajouter un quatrième dessin | `preview.mjs` (`CHARTS`, `chartOf`), `public/app.js` (`DRAW`, `chartKind`), la skill, puis `test/preview.test.mjs` — quatre endroits, jamais trois |
+| Changer ce que le modèle propose comme métrique | `prompts/preview.md` et `skills/preview-dashboard/SKILL.md`, puis `SCHEMA` dans `preview.mjs` — jamais le prompt seul |
 | Toucher aux relevés d'un projet | `preview.mjs` (`collect`, `readNumber`, `normalize`, `graft`), puis `test/preview.test.mjs` |
 | Donner plus d'outils au tour de modèle de l'aperçu | `preview.mjs` (`READ_ONLY`) — en pesant d'abord ce que `Bash` ferait de ce bouton |
 | Changer la bannière d'un projet | son dépôt : `.pyra/banner.png` — le code est `BANNERS` et la route `/banner` dans `server.mjs`, `bannerBand` dans `public/app.js`, `.pv-banner` dans `public/style.css` |
@@ -1026,8 +1127,11 @@ Les variables d'environnement ont suivi le nom : `PYRA_REGISTRY`, `PYRA_MODEL`,
 | Changer ce que Graphify extrait (docs, images, LLM) | `graph.mjs` (`build`), en pesant d'abord la règle « aucun appel au modèle » |
 | Retoucher le bloc greffé dans les `CLAUDE.md` | `graph.mjs` (`BLOCK`, `MARK_OPEN`), puis `test/graph.test.mjs` |
 | Changer ce que l'interface dit du graphe | `public/app.js` (`graphNote`, `graphButton`), `public/style.css` (`.gnote`) |
+| Changer l'icône d'un projet (côté code) | `public/app.js` (`PYR`, `projIcon`, `iconSwatches`, `iconButton`, `renderIconPicker`, `renderCreator`), `public/index.html` (`#icon`, `#new-swatches`), `public/style.css` (`.swatch*`, `#icon`, `#new-swatches`) |
+| Ajouter ou retirer une pyramide de couleur | `public/brand/colors-pyr.png`, `names` dans `scripts/brand.mjs`, `PYR` dans `public/app.js`, puis les deux largeurs de `public/style.css` — quatre endroits, jamais trois |
 | Changer le logo du graphe | `public/brand/graph-pyr.png`, puis `node scripts/brand.mjs` — `graphIcon()` et `.gicon` ne bougent pas |
 | Changer ce qui se déclenche à la création d'un projet | `settings.mjs` (`DEFAULTS.create`), `server.mjs` (`startForge`), `public/app.js` (`CREATE_OPTS`) — les intitulés viennent d'une SEULE liste |
+| Toucher à l'explication d'un automatisme | `public/app.js` (`hint`, `optList`), `public/style.css` (`.oq`, `.ob`) — la `desc` de `CREATE_OPTS` ne s'affiche plus qu'au survol du « ? » |
 | Ajouter un provider | `settings.mjs` (`PROVIDERS`), puis `server.mjs` (`/api/connections`, la résolution du binaire) |
 | Toucher à ce que l'app commite | `forge.mjs` (`OWNED`, `sync`), puis `test/forge.test.mjs` — chaque nom ajouté est un fichier de plus qu'on s'autorise chez quelqu'un d'autre |
 | Créer le dépôt distant autrement | `forge.mjs` (`createRemote`, `ghBin`) |

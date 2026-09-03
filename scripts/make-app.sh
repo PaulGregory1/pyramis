@@ -110,7 +110,13 @@ mkdir -p "$DEST"
 cp "$REPO/package.json" "$REPO/server.mjs" "$REPO/milestones.mjs" "$REPO/terminals.mjs" \
    "$REPO/generate.mjs" "$REPO/graph.mjs" "$REPO/repo.mjs" "$REPO/forge.mjs" \
    "$REPO/settings.mjs" "$REPO/usage.mjs" "$REPO/preview.mjs" "$DEST/"
-cp -R "$REPO/electron" "$REPO/public" "$REPO/prompts" "$DEST/"
+# `skills/` entre dans la charge au même titre que `prompts/` : le tour de modèle de
+# l'aperçu greffe `preview-chart/SKILL.md` (le dessin) et `preview-dashboard/SKILL.md`
+# (la composition) dans son prompt. Sans eux il propose des métriques sans dessin choisi
+# et une rangée de cartes qui ne se lit pas. Le dossier ENTIER est copié, donc une skill
+# de plus n'est pas une ligne de plus ici. Lus par `fs`, pas par `import` — le contrôle
+# des imports ci-dessous ne les verrait donc jamais manquer.
+cp -R "$REPO/electron" "$REPO/public" "$REPO/prompts" "$REPO/skills" "$DEST/"
 # Pas de projects.json : le registre vit dans ~/Library/Application Support/Pyra
 # (cf. registryPath dans server.mjs). Un registre embarqué serait écrit à chaque
 # ajout de projet — donc dans un bundle signé, donc une app qui ne redémarre plus.

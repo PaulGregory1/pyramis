@@ -43,7 +43,41 @@ export const filePath = (dir) => path.join(dir, FILE);
 // le plus souvent, et une retouche ne doit pas demander de redémarrer le serveur.
 export const PROMPT_FILE = path.join(__dir, "prompts", "preview.md");
 
+// La skill du dessin. Elle est GREFFÉE dans le prompt, pas découverte par le CLI :
+// `claude -p` tourne dans le dépôt de l'utilisateur, qui n'a aucune raison de porter
+// les skills de Pyra. Un fichier lu à chaque tour, comme le prompt — on le retouche
+// sans redémarrer le serveur, et il reste lisible tout seul.
+export const CHART_SKILL = path.join(__dir, "skills", "preview-chart", "SKILL.md");
+
+// La skill de la COMPOSITION : ce qui fait qu'une rangée de cartes se lit comme un
+// tableau de bord et non comme quatre champs remplis à la suite — quelles questions
+// méritent une carte, la longueur des intitulés, et la façon d'écrire une ligne de
+// `sh` qu'on n'aura jamais l'occasion d'essayer. Greffée comme l'autre, et pour la
+// même raison : elle appartient à Pyra, pas au dépôt dans lequel `claude -p` tourne.
+export const CRAFT_SKILL = path.join(__dir, "skills", "preview-dashboard", "SKILL.md");
+
+// Les trois dessins, et il n'y en a pas de quatrième : une courbe, un histogramme,
+// une barre qui se remplit vers une cible. Le modèle choisit — c'est tout l'objet de
+// la skill — et l'app se contente de dessiner ce qu'on lui a dit.
+export const CHARTS = ["line", "bars", "gauge"];
+
+// Ce qu'on fait d'un fichier qui ne dit rien — un `.pyra/preview.json` écrit avant que
+// ce champ existe, ou une valeur mal tapée à la main. Deux garde-fous, et un seul
+// endroit pour les deux (l'interface a le même dans `chartKind()`, à garder d'accord) :
+//
+//   — sans indication, une métrique QUI A UNE CIBLE prend la jauge. C'est ce que
+//     l'interface montrait avant le champ, et laisser un vieux fichier perdre sa
+//     barre de progression serait une régression silencieuse ;
+//   — une jauge SANS cible est une barre qui ne se remplira jamais : elle retombe sur
+//     la courbe, plutôt que d'afficher un vide qu'on prendrait pour une panne.
+const chartOf = (c, target) => {
+  const aimed = typeof target === "number" && Number.isFinite(target);
+  const k = CHARTS.includes(c) ? c : aimed ? "gauge" : "line";
+  return k === "gauge" && !aimed ? "line" : k;
+};
+
 const MAX_METRICS = 4;
+const MAX_NOTES = 900;       // une consigne, pas un cahier des charges
 const MAX_POINTS = 500;      // au-delà, la courbe ne dit rien de plus et le fichier gonfle
 const CMD_TIMEOUT = 30_000;  // une mesure est une lecture, pas un calcul
 const MODEL_TIMEOUT = 5 * 60 * 1000;
@@ -65,7 +99,7 @@ export async function read(dir) {
   } catch (e) {
     // Un fichier illisible est un fait à MONTRER, pas à avaler : il a été écrit à la
     // main la plupart du temps, et l'interface doit pouvoir dire où est la virgule.
-    return { goal: "", metrics: [], error: "unreadable .pyra/preview.json: " + String(e.message || e).slice(0, 120) };
+    return { goal: "", notes: "", metrics: [], error: "unreadable .pyra/preview.json: " + String(e.message || e).slice(0, 120) };
   }
 }
 
@@ -90,6 +124,7 @@ function normalize(data) {
       // aller-retour sur le disque, jauge pleine et « Target 0 » sous la courbe.
       target: typeof m.target === "number" && Number.isFinite(m.target) ? m.target : null,
       better: m.better === "down" ? "down" : "up",
+      chart: chartOf(m.chart, typeof m.target === "number" && Number.isFinite(m.target) ? m.target : null),
       source: String(m.source || "").slice(0, 160),
       command: String(m.command || "").slice(0, 400),
       decimals: Number.isInteger(m.decimals) ? Math.min(4, Math.max(0, m.decimals)) : null,
@@ -98,7 +133,12 @@ function normalize(data) {
     });
     if (metrics.length >= MAX_METRICS) break;
   }
-  return { goal: String(data?.goal || "").slice(0, 220), metrics };
+  // Les consignes de l'utilisateur vivent dans SON fichier, à côté de ses relevés, et
+  // pas dans un réglage de l'app : c'est la même règle que le reste — si Pyra
+  // disparaît, la phrase qui explique ce que ce tableau de bord doit montrer reste
+  // lisible et versionnée dans le dépôt. Elle est relue à chaque construction, donc
+  // elle se corrige aussi bien dans l'éditeur que dans la fenêtre.
+  return { goal: String(data?.goal || "").slice(0, 220), notes: String(data?.notes || "").slice(0, MAX_NOTES), metrics };
 }
 
 // Écriture atomique : un `.tmp` puis un `rename`. Le fichier vit dans le dépôt de
@@ -135,6 +175,7 @@ export function graft(spec, proposal) {
       unit: String(p.unit || "").slice(0, 12),
       target: typeof p.target === "number" && Number.isFinite(p.target) ? p.target : null,
       better: p.better === "down" ? "down" : "up",
+      chart: chartOf(p.chart, typeof p.target === "number" && Number.isFinite(p.target) ? p.target : null),
       source: String(p.source || "").slice(0, 160),
       command: String(p.command || "").slice(0, 400),
       decimals: Number.isInteger(p.decimals) ? Math.min(4, Math.max(0, p.decimals)) : null,
@@ -156,7 +197,9 @@ export function graft(spec, proposal) {
   // L'objectif se remplit s'il est vide, et ne se réécrit pas : c'est une phrase que
   // l'utilisateur a pu corriger à la main, et elle lui appartient.
   const goal = (spec?.goal || "").trim() || String(proposal.goal || "").slice(0, 220);
-  return { spec: { goal, metrics }, added, fixed };
+  // Les consignes ne viennent PAS de la proposition : elles appartiennent à
+  // l'utilisateur, le modèle ne fait que les lire. Elles traversent la greffe intactes.
+  return { spec: { goal, notes: String(spec?.notes || "").slice(0, MAX_NOTES), metrics }, added, fixed };
 }
 
 /* -------------------------------------------------------------- les collecteurs */
@@ -241,13 +284,14 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["key", "label", "command", "source"],
+        required: ["key", "label", "command", "source", "chart"],
         properties: {
           key: { type: "string" },
           label: { type: "string" },
           unit: { type: "string" },
           target: { type: "number" },
           better: { type: "string", enum: ["up", "down"] },
+          chart: { type: "string", enum: CHARTS },
           decimals: { type: "integer" },
           source: { type: "string" },
           command: { type: "string" },
@@ -278,7 +322,7 @@ function inventory(spec) {
     .map((m) => {
       const last = m.points[m.points.length - 1];
       const state = m.error ? `BROKEN — ${m.error}` : last ? `last reading ${last.v}` : "never read";
-      return `    - ${m.key} · ${m.label} · ${state}\n      command: ${m.command || "(none)"}`;
+      return `    - ${m.key} · ${m.label} · ${m.chart} · ${state}\n      command: ${m.command || "(none)"}`;
     })
     .join("\n");
 }
@@ -292,9 +336,44 @@ async function tree(cwd) {
   }
 }
 
-export async function buildPrompt(project, spec) {
+// Le corps d'une skill, sans son en-tête YAML : le `name` et la `description` servent
+// au CLI à décider s'il la charge, et ici la décision est déjà prise. Ses titres
+// descendent d'un cran, pour que son `#` devienne une section du prompt parmi les
+// autres au lieu d'en couper le fil.
+async function skillBody(file) {
+  try {
+    const raw = await fsp.readFile(file, "utf8");
+    return raw
+      .replace(/^---\n[\s\S]*?\n---\n/, "")
+      .replace(/^(#{1,5}) /gm, "$1# ")
+      .trim();
+  } catch {
+    // Une skill manquante ne fait pas échouer la construction : le prompt garde ses
+    // consignes, le modèle propose un `chart` moins bien choisi, et c'est tout.
+    return "";
+  }
+}
+
+// Ce que l'utilisateur a demandé, quand il a ouvert la fenêtre « Customize » plutôt que
+// d'appuyer sur le bouton. C'est SA phrase, recopiée telle quelle : on ne la réécrit pas,
+// on ne la complète pas, on dit seulement d'où elle vient — le prompt, lui, dit ce
+// qu'elle a le droit de renverser et ce qu'elle n'a pas le droit de toucher.
+const brief = (notes) => {
+  const t = String(notes || "").trim().slice(0, MAX_NOTES);
+  return t || "(nothing in particular — they pressed the button and left it to you)";
+};
+
+export async function buildPrompt(project, spec, notes = "") {
   const template = await fsp.readFile(PROMPT_FILE, "utf8");
-  const fill = { name: project.name, path: project.path, tree: await tree(project.path), existing: inventory(spec) };
+  const fill = {
+    name: project.name,
+    path: project.path,
+    tree: await tree(project.path),
+    existing: inventory(spec),
+    notes: brief(notes),
+    craft: await skillBody(CRAFT_SKILL),
+    chart: await skillBody(CHART_SKILL),
+  };
   return template.replace(/\{\{(\w+)\}\}/g, (m, k) => (k in fill ? fill[k] : m));
 }
 
@@ -307,8 +386,8 @@ function parseResult(text) {
   return { goal: String(data.goal || ""), metrics: data.metrics };
 }
 
-export async function design({ project, spec, bin = "claude", model = process.env.PYRA_MODEL || "" }) {
-  const prompt = await buildPrompt(project, spec);
+export async function design({ project, spec, notes = "", bin = "claude", model = process.env.PYRA_MODEL || "" }) {
+  const prompt = await buildPrompt(project, spec, notes);
   const args = [
     "-p", prompt,
     "--output-format", "json",

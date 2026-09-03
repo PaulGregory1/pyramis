@@ -171,32 +171,81 @@ async function gitHead(dir) {
   };
 }
 
-// Le README, débarrassé de ce qui ne se lit pas en trois lignes : badges, commentaires
-// HTML, titres, blocs de code. On garde les deux premiers paragraphes de prose — de
-// quoi savoir de quoi parle le dépôt sans l'ouvrir.
+// Le README, débarrassé de tout ce qui n'est pas de la PROSE. Un README d'aujourd'hui
+// s'ouvre sur un bloc HTML centré, un logo, deux rangées de badges et un tableau des
+// versions : tout cela se lit très bien sur GitHub et n'a aucun sens dans les trois
+// lignes d'un aperçu. Laissé passer, ça donnait exactement ce qu'on voyait à l'écran —
+// un `<img src="public/logo.svg" width="88">` posé au milieu de la page comme une phrase.
+//
+// Le nettoyage se fait en DEUX temps, et les deux comptent :
+//
+//   1. `declutter()` retire le balisage — commentaires, blocs de code, balises HTML,
+//      images, liens, titres, entités.
+//   2. `isProse()` JETTE ensuite les paragraphes qui n'ont jamais été des phrases —
+//      une ligne de tableau, une liste à puces, une suite de commandes. Sans ce
+//      second temps, une balise disparaissait mais la rangée de badges qu'elle
+//      contenait restait, et l'aperçu montrait toujours du code.
 const NAMES = ["README.md", "readme.md", "README.MD", "Readme.md", "README.txt", "README"];
+
+// Les seules entités qu'un README écrit vraiment à la main. Tout le reste devient une
+// espace : mieux vaut un blanc qu'un `&#x1F600;` au milieu d'une phrase.
+const ENTITIES = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", mdash: "—", ndash: "–", hellip: "…" };
+
+function declutter(text) {
+  return text
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/~~~[\s\S]*?~~~/g, "")
+    // Ces blocs-là partent avec leur CONTENU : ce qu'ils portent — une rangée de
+    // badges, un tableau de versions, un SVG — ne se lit pas davantage que la balise.
+    .replace(/<(script|style|svg|picture|table|video|iframe|pre|code)\b[\s\S]*?<\/\1>/gi, " ")
+    // Les balises qui restent, ouvrantes, fermantes ou autofermantes. La borne de 400
+    // caractères est là pour qu'un `<` isolé dans une phrase n'avale pas la suite.
+    .replace(/<\/?[a-z][^>]{0,400}>/gi, "")
+    .replace(/&([a-z]+|#\d+);/gi, (m, e) => ENTITIES[e.toLowerCase()] ?? " ")
+    .replace(/^\s*\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)\s*$/gm, "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")     // lien par référence
+    .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, "")    // et sa définition, en bas de page
+    .replace(/^#{1,6}\s+.*$/gm, "")
+    .replace(/^\s*[-*=_]{3,}\s*$/gm, "")
+    .replace(/[`*_]/g, "");
+}
+
+// Un paragraphe est de la prose s'il ressemble à une phrase écrite pour être lue. Les
+// refus sont chacun une chose qu'on a vue s'afficher : un bloc de code indenté de quatre
+// espaces, une ligne de tableau, une balise oubliée, une liste à puces aplatie en
+// « - a - b - c », une invite de shell. Le dernier test — la part de lettres — attrape
+// le reste : une ligne de commandes ou une suite de chemins n'atteint jamais les
+// deux tiers. Il prend le paragraphe BRUT, indentation comprise : c'est elle qui
+// distingue un bloc de code d'une phrase, et la collecte des blancs l'efface.
+const isProse = (raw) => {
+  if (/^(?:\t| {4})/.test(raw)) return false;
+  const p = raw.replace(/\s+/g, " ").trim();
+  return p.length > 24 &&
+    /[a-zà-ÿ]{3}/i.test(p) &&
+    !/^[|<[]/.test(p) &&
+    !/^(?:[-*+•]|\d+[.)])\s/.test(p) &&
+    !/^[$>]/.test(p) &&
+    (p.match(/[a-zà-ÿ' ]/gi) || []).length / p.length > 0.62;
+};
 
 export async function readme(dir) {
   for (const name of NAMES) {
     let text;
     try { text = await fsp.readFile(path.join(dir, name), "utf8"); } catch { continue; }
     text = text.slice(0, 8000);
-    const title = (/^#\s+(.+)$/m.exec(text) || [])[1] || "";
-    const body = text
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/```[\s\S]*?```/g, "")
-      .replace(/^\s*\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)\s*$/gm, "")
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replace(/^#{1,6}\s+.*$/gm, "")
-      .replace(/^\s*[-*=_]{3,}\s*$/gm, "")
-      .replace(/[`*_]/g, "");
-    const paras = body.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, " ").trim()).filter((p) => p.length > 24);
+    // Le titre : le `#` du markdown, ou le `<h1>` de ceux qui ouvrent en HTML. Il passe
+    // par le même nettoyage que le reste — un titre porte souvent le logo du projet.
+    const h1 = (/^#\s+(.+)$/m.exec(text) || [])[1] || (/<h1[^>]*>([\s\S]{0,200}?)<\/h1>/i.exec(text) || [])[1] || "";
+    const title = declutter(h1).replace(/\s+/g, " ").trim();
+    const paras = declutter(text).split(/\n[ \t]*\n/).filter(isProse).map((p) => p.replace(/\s+/g, " ").trim());
     const full = paras.slice(0, 2).join("\n\n");
     // La coupe se voit : sans les points de suspension, un aperçu tronqué se lit comme
     // une phrase que l'auteur aurait laissée en plan.
     const shown = full.length > 460 ? full.slice(0, 460).replace(/\s+\S*$/, "") + " …" : full;
-    return { file: name, title: title.trim(), text: shown };
+    return { file: name, title, text: shown };
   }
   return null;
 }

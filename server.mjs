@@ -85,6 +85,14 @@ const SEED = [
   { emoji: "📈", name: "SoAI hackathon", dir: "Documents/soc-ai-trading" },
 ];
 
+// L'icône d'un projet est l'une de DEUX choses, et le champ n'en garde qu'une chaîne :
+// un emoji, ou le jeton d'une des huit pyramides de la planche de marque (« pyr:violet »).
+// Le serveur ne tranche pas entre les deux — c'est `projIcon()` dans public/app.js qui
+// lit le jeton, et la route /brand/ qui sert l'image. Ce qui est à lui, c'est la
+// longueur : seize caractères tiennent le plus long des jetons comme un emoji composé,
+// dont 🏴‍☠️ à lui seul en fait sept.
+const icon = (v, fallback) => (typeof v === "string" && v.trim() ? v.trim() : fallback).slice(0, 16);
+
 function loadRegistry() {
   if (fs.existsSync(REGISTRY)) {
     try { return JSON.parse(fs.readFileSync(REGISTRY, "utf8")); } catch { /* on reseed */ }
@@ -210,7 +218,11 @@ function startGeneration(proj) {
 // une route à la demande, et seul l'état du travail vit ici, en mémoire.
 const previews = new Map(); // projectId -> { kind, running, startedAt, endedAt, added, read, error }
 
-function startPreview(proj, kind) {
+// `notes` : ce que l'utilisateur a écrit dans « Customize », ou `null` quand il a
+// simplement appuyé sur le bouton. La nuance compte — `null` REPREND les consignes
+// déjà posées dans le fichier, une chaîne vide les efface. Sans elle, un clic sur le
+// bouton simple aurait silencieusement jeté ce qu'il avait demandé la fois d'avant.
+function startPreview(proj, kind, notes = null) {
   const running = previews.get(proj.id);
   if (running?.running) return running;
 
@@ -218,7 +230,7 @@ function startPreview(proj, kind) {
   previews.set(proj.id, job);
 
   (async () => {
-    let spec = (await PV.read(proj.path)) || { goal: "", metrics: [] };
+    let spec = (await PV.read(proj.path)) || { goal: "", notes: "", metrics: [] };
     // Un fichier présent mais illisible n'est PAS un fichier absent : il porte du
     // travail — des relevés, une commande corrigée à la main — derrière une virgule
     // en trop. Repartir de zéro l'écraserait. On s'arrête, et on dit où regarder.
@@ -226,9 +238,11 @@ function startPreview(proj, kind) {
 
     if (kind === "build") {
       const set = S.read();
+      const brief = typeof notes === "string" ? notes : String(spec.notes || "");
       const proposal = await PV.design({
         project: proj,
         spec,
+        notes: brief,
         bin: claudeBin(),
         model: set.model || process.env.PYRA_MODEL || "",
       });
@@ -239,7 +253,10 @@ function startPreview(proj, kind) {
       if (fresh?.error) throw new Error(fresh.error + " — it was edited while the model was reading; nothing was written");
       spec = fresh || spec;
       const g = PV.graft(spec, proposal);
-      spec = g.spec;
+      // Les consignes sont gardées avec le reste, dans le dépôt : la fois d'après, la
+      // fenêtre les retrouve déjà écrites, et le fichier dit tout seul pourquoi ce
+      // tableau de bord montre ces nombres-là.
+      spec = { ...g.spec, notes: brief.slice(0, 900) };
       job.added = g.added + g.fixed;
     }
 
@@ -570,7 +587,7 @@ const server = http.createServer(async (req, res) => {
       const target = path.resolve(b.path || "");
       if (!target.startsWith(HOME) || !fs.existsSync(target)) return json(res, 400, { error: "invalid folder" });
       if (projects.some((x) => x.path === target)) return json(res, 409, { error: "project already tracked" });
-      const proj = { id: crypto.randomBytes(4).toString("hex"), name: (b.name || path.basename(target)).slice(0, 60), emoji: (b.emoji || "📁").slice(0, 8), path: target, order: projects.length };
+      const proj = { id: crypto.randomBytes(4).toString("hex"), name: (b.name || path.basename(target)).slice(0, 60), emoji: icon(b.emoji, "📁"), path: target, order: projects.length };
       projects.push(proj); saveRegistry(projects);
       // Et c'est TOUT. Un dossier déjà présent sur la machine est inscrit au registre,
       // rien de plus. L'app a construit un graphe d'office ici pendant un temps ; c'est
@@ -630,7 +647,7 @@ const server = http.createServer(async (req, res) => {
 
       const proj = {
         id: crypto.randomBytes(4).toString("hex"),
-        name, emoji: (b.emoji || "🌱").slice(0, 8), path: target, order: projects.length,
+        name, emoji: icon(b.emoji, "🌱"), path: target, order: projects.length,
         // La marque qui distingue les deux chemins pour toujours. C'est elle, et non un
         // réglage global, qui autorise l'app à commiter dans ce dépôt : le projet est né
         // ici, la synchro fait partie de ce qu'on a demandé en le créant. Un projet
@@ -689,7 +706,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "PATCH") {
         const b = await readBody(req);
         if (typeof b.name === "string") proj.name = b.name.slice(0, 60);
-        if (typeof b.emoji === "string") proj.emoji = b.emoji.slice(0, 8);
+        if (typeof b.emoji === "string") proj.emoji = icon(b.emoji, proj.emoji);
         if (Number.isInteger(b.order)) proj.order = b.order;
         // La synchro se coupe et se rallume par projet. Elle ne s'allume que sur un
         // geste explicite : c'est le seul réglage de l'app qui donne à une machine le
@@ -807,12 +824,17 @@ const server = http.createServer(async (req, res) => {
       if (!proj) return json(res, 404, { error: "unknown project" });
       if (!fs.existsSync(proj.path)) return json(res, 400, { error: "project folder not found" });
       const job = previews.get(proj.id);
-      if (job?.running) return json(res, 409, { error: "the preview is already being worked on" });
+      if (job?.running) return json(res, 409, { error: "these numbers are already being worked on" });
       const kind = pvMatch[2] ? "update" : "build";
       // Mettre à jour ce qui n'existe pas n'a pas de sens, et le dire vaut mieux que
       // d'écrire un fichier vide dans le dépôt de quelqu'un.
-      if (kind === "update" && !PV.exists(proj.path)) return json(res, 400, { error: "no preview to update yet — build it first" });
-      startPreview(proj, kind);
+      if (kind === "update" && !PV.exists(proj.path)) return json(res, 400, { error: "nothing to measure yet — build the scoreboard first" });
+      // Le corps est facultatif : le bouton l'envoie vide, la fenêtre « Customize »
+      // y met les consignes. Absent, il vaut `null` — les consignes déjà écrites dans
+      // le dépôt restent en place (voir `startPreview`).
+      const b = await readBody(req);
+      const notes = typeof b?.notes === "string" ? b.notes.slice(0, 900) : null;
+      startPreview(proj, kind, notes);
       return json(res, 202, { started: true });
     }
 
